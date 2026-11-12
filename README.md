@@ -19,6 +19,8 @@ A reusable AI agent pipeline we bring to any hackathon: it reads the track brief
 
 - [Workflow plan](docs/hackathon-workflow-plan.md)
 - [Step 1 drills](docs/step1-drills.md)
+- [Using Cursor and VS Code](docs/cursor-guide.md)
+- [Agent rules](AGENTS.md)
 
 ## Rules
 
