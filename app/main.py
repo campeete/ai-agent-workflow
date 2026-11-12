@@ -6,8 +6,13 @@ Docs: http://127.0.0.1:8000/docs
 import logging
 import time
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
+
+from agents.models import ModelInfo, list_models
 
 from agents.pipeline import (
     AGENTS,
@@ -23,7 +28,13 @@ from agents.pipeline import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("api")
 
-app = FastAPI(title="ai-agent-workflow starter", version="0.1.0")
+app = FastAPI(
+    title="AI Agent Workflow",
+    version="0.2.0",
+    description="Five hackathon agents. Open /dashboard for the visual version.",
+)
+
+DASHBOARD_HTML = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
 
 
 @app.middleware("http")
@@ -57,6 +68,23 @@ def echo(body: EchoIn) -> EchoOut:
     return EchoOut(message=body.message, author=body.author, length=len(body.message))
 
 
+@app.get("/models")
+def read_models() -> list[ModelInfo]:
+    """List the AI models and whether each one's API key is set (keys are never shown)."""
+    return list_models()
+
+
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+def dashboard() -> HTMLResponse:
+    """The visual dashboard for running agents."""
+    return HTMLResponse(DASHBOARD_HTML, headers={
+        "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; "
+                                   "script-src 'unsafe-inline'; connect-src 'self'",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+    })
+
+
 @app.get("/agents")
 def read_agents() -> list[AgentDescription]:
     """List the five agents with name, step, input, and output."""
@@ -71,7 +99,7 @@ def _agent_run_route(spec: AgentSpec):
         return spec.run(body)
 
     run_stub.__name__ = f"run_{spec.name}"
-    run_stub.__doc__ = f"Run the {spec.name} stub."
+    run_stub.__doc__ = f"Run the {spec.name} agent."
     run_stub.__annotations__["return"] = output_model
     return run_stub
 
