@@ -10,12 +10,18 @@ later: change its provider to "ollama". Nothing else changes.
 """
 
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from openai import OpenAI
 from pydantic import BaseModel
+
+# Free tiers reject too many requests at once, so each provider gets a limit.
+# Extra calls wait their turn instead of failing.
+MAX_AT_ONCE = {"nvidia": 3, "google": 2, "openai": 4}
+_slots = {name: threading.BoundedSemaphore(n) for name, n in MAX_AT_ONCE.items()}
 
 PROVIDERS: dict[str, dict[str, str]] = {
     "nvidia": {
@@ -77,6 +83,7 @@ MODELS: tuple[ModelSpec, ...] = (
     ModelSpec(
         id="deepseek-v4-flash",
         timeout=60,
+        default_on=False,  # free endpoint often hangs; tick to try it
         provider="nvidia",
         model="deepseek-ai/deepseek-v4.1-flash",
         label="DeepSeek V4.1 Flash",
@@ -94,6 +101,7 @@ MODELS: tuple[ModelSpec, ...] = (
     ModelSpec(
         id="glm-5-flash",
         timeout=60,
+        default_on=False,  # free endpoint often hangs; tick to try it
         provider="nvidia",
         model="z-ai/glm-5.3-flash",
         label="GLM 5.3 Flash",
@@ -177,6 +185,11 @@ def call_model(model_id: str, system: str, user: str) -> ModelResult:
         env = PROVIDERS[spec.provider]["key_env"]
         return ModelResult(model_id=spec.id, label=spec.label, ok=False, text="", ms=0,
                            error=f"{env} is not set")
+    with _slots[spec.provider]:  # wait for a free slot at this provider
+        return _call(spec, key, system, user)
+
+
+def _call(spec: ModelSpec, key: str, system: str, user: str) -> ModelResult:
     start = time.perf_counter()
     try:
         client = OpenAI(base_url=PROVIDERS[spec.provider]["base_url"], api_key=key,
