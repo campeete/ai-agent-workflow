@@ -24,6 +24,7 @@ TIMEOUT_SECONDS = 15
 MAX_FILES = 40
 MAX_FILE_BYTES = 30_000
 MAX_TOTAL_CHARS = 60_000
+MAX_CHARS_PER_FILE = 12_000  # so one big file (a long page, a data dump) can't use up the budget
 CACHE_SECONDS = 600  # one dashboard run asks once per model; fetch the repo only once
 
 REPO_NAME = re.compile(r"^(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/(?P<repo>[A-Za-z0-9._-]{1,100})$")
@@ -71,12 +72,36 @@ def _wanted(path: str, size: int) -> bool:
     return ext in TEXT_EXTENSIONS or name in TEXT_NAMES
 
 
+CODE_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".kt",
+                   ".swift", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb", ".php", ".sh", ".sql", ".vue", ".svelte"}
+ENTRY_NAMES = {"main.py", "app.py", "server.py", "routes.py", "api.py", "index.js", "index.ts",
+               "server.js", "server.ts", "app.js", "app.ts", "main.go", "main.rs"}
+CONFIG_NAMES = {"pyproject.toml", "package.json", "dockerfile", "requirements.txt", "railpack.json",
+                "railway.json", "docker-compose.yml", "procfile", "makefile"}
+
+
 def _rank(path: str) -> tuple[int, int, str]:
-    """Read the most telling files first: README, configs, then shallow code."""
-    name = path.rsplit("/", 1)[-1].lower()
-    first = 0 if name.startswith("readme") else 1 if name in {"pyproject.toml", "package.json", "dockerfile"} else 2
-    tests_last = 1 if "/test" in f"/{path}".lower() else 0
-    return (first, tests_last + path.count("/"), path)
+    """Read the most telling files first, so the size budget goes on what explains the project:
+    README, configs, entry points, other code, then pages, docs and tests last."""
+    lower = path.lower()
+    name = lower.rsplit("/", 1)[-1]
+    ext = os.path.splitext(name)[1]
+    is_test = "/test" in f"/{lower}" or name.startswith("test_") or ".test." in name or ".spec." in name
+    if is_test:
+        group = 6
+    elif name.startswith("readme") and "/" not in path:
+        group = 0
+    elif name in CONFIG_NAMES:
+        group = 1
+    elif name in ENTRY_NAMES:
+        group = 2
+    elif ext in CODE_EXTENSIONS:
+        group = 3
+    elif ext in {".html", ".css"}:
+        group = 4
+    else:
+        group = 5  # docs, data, other text
+    return (group, path.count("/"), path)
 
 
 def _headers() -> dict[str, str]:
@@ -121,6 +146,8 @@ def _download(slug: str) -> list[tuple[str, str]]:
                 text = raw.text
                 if "\x00" in text:  # binary file with a text-looking name
                     continue
+                if len(text) > MAX_CHARS_PER_FILE:
+                    text = text[:MAX_CHARS_PER_FILE] + "\n... (rest of file not shown)"
                 if total + len(text) > MAX_TOTAL_CHARS:
                     text = text[: MAX_TOTAL_CHARS - total]
                 files.append((path, text))
