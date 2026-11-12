@@ -1,4 +1,4 @@
-"""Starter API for the Step 1 drills.
+"""Hackathon agent API, including the Step 1 drill endpoints.
 
 Run:  uv run uvicorn app.main:app --reload
 Docs: http://127.0.0.1:8000/docs
@@ -6,8 +6,19 @@ Docs: http://127.0.0.1:8000/docs
 import logging
 import time
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
+
+from agents.pipeline import (
+    AGENTS,
+    AgentDescription,
+    AgentSpec,
+    PipelineInput,
+    PipelineOutput,
+    known_agent_names,
+    list_agents,
+    run_pipeline,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("api")
@@ -44,3 +55,46 @@ def health() -> dict[str, str]:
 @app.post("/echo")
 def echo(body: EchoIn) -> EchoOut:
     return EchoOut(message=body.message, author=body.author, length=len(body.message))
+
+
+@app.get("/agents")
+def read_agents() -> list[AgentDescription]:
+    """List the five agents with name, step, input, and output."""
+    return list_agents()
+
+
+def _agent_run_route(spec: AgentSpec):
+    """Build a POST handler whose body is that agent's input model."""
+    output_model = spec.run.__annotations__["return"]
+
+    def run_stub(body: spec.input_model):
+        return spec.run(body)
+
+    run_stub.__name__ = f"run_{spec.name}"
+    run_stub.__doc__ = f"Run the {spec.name} stub."
+    run_stub.__annotations__["return"] = output_model
+    return run_stub
+
+
+for _spec in AGENTS:
+    app.add_api_route(
+        f"/agents/{_spec.name}/run",
+        _agent_run_route(_spec),
+        methods=["POST"],
+        response_model=_spec.run.__annotations__["return"],
+    )
+
+
+@app.post("/agents/{name}/run", include_in_schema=False)
+def unknown_agent(name: str) -> None:
+    """Reject a name that is not one of the five agents."""
+    raise HTTPException(
+        status_code=404,
+        detail=f"Unknown agent. Known agents: {', '.join(known_agent_names())}",
+    )
+
+
+@app.post("/pipeline/run")
+def run_full_pipeline(body: PipelineInput) -> PipelineOutput:
+    """Run agents 1-4. The progress reporter is not part of this call."""
+    return run_pipeline(body)
