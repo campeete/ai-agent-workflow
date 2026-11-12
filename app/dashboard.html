@@ -21,6 +21,8 @@
   .muted { opacity: .65; font-size: 13px; }
   .agent { border: 1px solid #fff; padding: 12px; margin-bottom: 12px; }
   .agent.off { opacity: .4; border-style: dashed; }
+  .agent.live { cursor: pointer; }
+  .agent.live:hover { background: #111; }
   .agent.on { outline: 1px solid #fff; outline-offset: 3px; }
   textarea { width: 100%; min-height: 120px; background: #000; color: #fff; border: 1px solid #fff; padding: 12px; font: 14px/1.5 ui-monospace, Menlo, monospace; }
   .models { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
@@ -71,20 +73,18 @@
 <div class="layout">
   <nav>
     <h3>Agents</h3>
-    <div class="agent off"><strong>1 · Brief reader</strong><div class="muted">Reads the challenge, lists what judges want. Coming soon.</div></div>
+    <div class="agent live" data-agent="brief_reader" role="button" tabindex="0"><strong>1 · Brief reader</strong><div class="muted">Reads the challenge, lists what judges want. Live.</div></div>
     <div class="agent off"><strong>2 · Repo reader</strong><div class="muted">Reads our code, explains how it fits together. Coming soon.</div></div>
     <div class="agent off"><strong>3 · Visuals</strong><div class="muted">Draws the architecture diagram. Coming soon.</div></div>
     <div class="agent off"><strong>4 · Slides</strong><div class="muted">Builds the pitch deck. Coming soon.</div></div>
-    <div class="agent on"><strong>5 · Progress reporter</strong><div class="muted">Turns commits into plain-English updates. Live.</div></div>
+    <div class="agent live on" data-agent="progress_reporter" role="button" tabindex="0"><strong>5 · Progress reporter</strong><div class="muted">Turns commits into plain-English updates. Live.</div></div>
   </nav>
 
   <main>
     <section class="card">
-      <h2>Progress reporter</h2>
-      <p class="muted">Paste commit messages, one per line. Every model you tick writes its own update at the same time. Read them side by side and pick the best.</p>
-      <textarea id="commits">Add skeleton for the 5 agents
-Add Railway deploy config and guide
-Add live API URL to README and deploy guide</textarea>
+      <h2 id="agent-title">Progress reporter</h2>
+      <p class="muted" id="agent-help"></p>
+      <textarea id="commits"></textarea>
       <div>
         <button type="button" id="all">All models</button>
         <button type="button" id="none">None</button>
@@ -113,7 +113,7 @@ Add live API URL to README and deploy guide</textarea>
     <ul id="model-info"><li class="muted">Loading…</li></ul>
     <h3 style="margin-top:24px">Security</h3>
     <ul class="muted">
-      <li>Commit messages are treated as data. Instructions hidden inside them are ignored.</li>
+      <li>Pasted text (commits, challenge briefs) is treated as data. Instructions hidden inside it are ignored.</li>
       <li>API keys live on the server only. This page never sees them.</li>
       <li>Answers are shown as plain text, never as HTML.</li>
     </ul>
@@ -127,6 +127,41 @@ Add live API URL to README and deploy guide</textarea>
 
 <script>
   const $ = (id) => document.getElementById(id);
+  // What each live agent asks for. "field" is the API field; "split" turns the box into a list.
+  const AGENT_UI = {
+    progress_reporter: {
+      title: "Progress reporter", field: "commit_messages", noun: "update",
+      help: "Paste commit messages, one per line. Every model you tick writes its own update at the same time. Read them side by side and pick the best.",
+      sample: "Add skeleton for the 5 agents\nAdd Railway deploy config and guide\nAdd live API URL to README and deploy guide",
+      split: (t) => t.split("\n").map((s) => s.trim()).filter(Boolean),
+      check: (items) => (items.length > 200 || items.some((c) => c.length > 500)) ? "Max 200 lines, 500 characters each." : "",
+      empty: "Add at least one commit message.",
+    },
+    brief_reader: {
+      title: "Brief reader", field: "challenge_statements", noun: "breakdown",
+      help: "Paste the hackathon challenge: the track description, rules, judging criteria. For several tracks, put a line with just --- between them. Each model breaks it down into what to build, how it's judged and a plan.",
+      sample: "Track: Civic Tech\nBuild a tool that helps residents report and track city service requests (potholes, broken streetlights).\nJudging: impact 40%, technical execution 30%, design 20%, presentation 10%.\nMust use at least one public city data API. Teams of up to 4. Demo is 3 minutes.",
+      split: (t) => t.split(/^\s*---\s*$/m).map((s) => s.trim()).filter(Boolean),
+      check: (items) => (items.length > 10 || items.some((c) => c.length > 8000) || items.join("").length > 20000)
+        ? "Max 10 sections, 8,000 characters each, 20,000 in total." : "",
+      empty: "Paste the challenge text first.",
+    },
+  };
+  let agent = "progress_reporter";
+  const drafts = {};  // keeps what you typed for each agent when you switch
+
+  function selectAgent(name) {
+    if (name !== agent) drafts[agent] = $("commits").value;
+    agent = name;
+    const ui = AGENT_UI[name];
+    $("agent-title").textContent = ui.title;
+    $("agent-help").textContent = ui.help;
+    $("commits").value = drafts[name] ?? ui.sample;
+    document.querySelectorAll(".agent.live").forEach((n) => n.classList.toggle("on", n.dataset.agent === name));
+    $("results").replaceChildren(); $("verdict").replaceChildren(); $("table-card").hidden = true;
+    $("hint").textContent = "";
+  }
+
   const el = (tag, text, cls) => { const n = document.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; return n; };
 
   function savePick(entry) {
@@ -201,7 +236,7 @@ Add live API URL to README and deploy guide</textarea>
         pick.onclick = () => {
           box.querySelectorAll(".result").forEach((c) => c.classList.remove("picked"));
           card.classList.add("picked");
-          savePick({ agent: "progress_reporter", model: r.model_id, at: new Date().toISOString(), commits: commits.length });
+          savePick({ agent, model: r.model_id, at: new Date().toISOString(), items: commits.length });
         };
         card.append(pick);
       }
@@ -243,9 +278,9 @@ Add live API URL to README and deploy guide</textarea>
 
   async function askOne(id, commits) {
     try {
-      const r = await fetch("/agents/progress_reporter/run", {
+      const r = await fetch("/agents/" + agent + "/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commit_messages: commits, models: [id], referee: false }),
+        body: JSON.stringify({ [AGENT_UI[agent].field]: commits, models: [id], referee: false }),
       });
       if (!r.ok) throw new Error("rejected");
       return (await r.json()).results[0];
@@ -286,11 +321,13 @@ Add live API URL to README and deploy guide</textarea>
   };
 
   $("run").onclick = async () => {
-    const commits = $("commits").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const ui = AGENT_UI[agent];
+    const commits = ui.split($("commits").value);
     const models = [...document.querySelectorAll("#models input:checked")].map((c) => c.value);
-    if (!commits.length) { $("hint").textContent = "Add at least one commit message."; return; }
+    if (!commits.length) { $("hint").textContent = ui.empty; return; }
     if (!models.length) { $("hint").textContent = "Tick at least one model."; return; }
-    if (commits.length > 200 || commits.some((c) => c.length > 500)) { $("hint").textContent = "Max 200 lines, 500 characters each."; return; }
+    const tooBig = ui.check(commits);
+    if (tooBig) { $("hint").textContent = tooBig; return; }
     $("hint").textContent = "The table is thinking…";
     $("run").disabled = true; $("bar").classList.add("show");
     $("results").replaceChildren(); $("verdict").replaceChildren();
@@ -304,9 +341,9 @@ Add live API URL to README and deploy guide</textarea>
       if ($("use-referee").checked && answered.length >= 2) {
         $("judge-state").textContent = "The Judge is deliberating…";
         try {
-          const j = await fetch("/agents/progress_reporter/judge", {
+          const j = await fetch("/agents/" + agent + "/judge", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ commit_messages: commits, results }),
+            body: JSON.stringify({ [ui.field]: commits, results }),
           });
           if (j.ok) verdict = await j.json();
           else {
@@ -328,7 +365,7 @@ Add live API URL to README and deploy guide</textarea>
       }
       renderVerdict(verdict, results);
       renderResults(results, commits, verdict);
-      $("hint").textContent = "Done. Click a seat or pick the clearest update.";
+      $("hint").textContent = "Done. Click a seat or pick the clearest " + ui.noun + ".";
     } finally {
       $("run").disabled = false; $("bar").classList.remove("show");
     }
@@ -347,6 +384,12 @@ Add live API URL to README and deploy guide</textarea>
   $("models").addEventListener("change", updateCount);
 
   loadStatus(); loadModels().then(updateCount);
+  document.querySelectorAll(".agent.live").forEach((n) => {
+    n.onclick = () => selectAgent(n.dataset.agent);
+    n.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectAgent(n.dataset.agent); } };
+  });
+  drafts.progress_reporter = AGENT_UI.progress_reporter.sample;
+  selectAgent("progress_reporter");
 </script>
 </body>
 </html>

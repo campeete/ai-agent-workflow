@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from agents.models import ModelInfo, list_models
+from agents import brief_reader
 from agents.progress_reporter import JudgeInput, judge_results
 from agents.referee import RefereeVerdict
 from agents.voice import MAX_CHARS, VoiceError, speak
@@ -135,6 +136,12 @@ def unknown_agent(name: str) -> None:
 def judge_progress(body: JudgeInput) -> RefereeVerdict | None:
     """Referee judges answers the dashboard collected one model at a time."""
     return judge_results(body)
+
+
+@app.post("/agents/brief_reader/judge")
+def judge_brief(body: brief_reader.BriefJudgeInput) -> RefereeVerdict | None:
+    """Referee judges the challenge breakdowns the dashboard collected."""
+    return brief_reader.judge_results(body)
 
 
 class SpeakIn(BaseModel):
