@@ -34,9 +34,23 @@ def test_rejects_unknown_or_referee_model():
         assert client.post("/agents/progress_reporter/judge", json=body).status_code == 422
 
 
-def test_rejects_oversized_answer():
-    body = {"commit_messages": ["c"], "results": [r("nemotron-lightning", "x" * 5001), r("nemotron-super")]}
+def test_rejects_absurdly_long_answer():
+    body = {"commit_messages": ["c"], "results": [r("nemotron-lightning", "x" * 20_001), r("nemotron-super")]}
     assert client.post("/agents/progress_reporter/judge", json=body).status_code == 422
+
+
+def test_trims_wordy_answer_instead_of_rejecting(monkeypatch):
+    seen = {}
+
+    def fake(m, s, u):
+        seen["prompt"] = u
+        return ModelResult(model_id=m, label=m, ok=True, text='{"best":"A","reason":"ok"}', ms=1)
+
+    monkeypatch.setattr(referee, "call_model", fake)
+    body = {"commit_messages": ["c"], "results": [r("nemotron-lightning", "x" * 9000), r("nemotron-super")]}
+    resp = client.post("/agents/progress_reporter/judge", json=body)
+    assert resp.status_code == 200 and resp.json()["ok"]
+    assert "x" * 6001 not in seen["prompt"]
 
 
 def test_needs_password_when_set(monkeypatch):

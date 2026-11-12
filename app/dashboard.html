@@ -308,7 +308,12 @@ Add live API URL to README and deploy guide</textarea>
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ commit_messages: commits, results }),
           });
-          verdict = j.ok ? await j.json() : { ok: false, error: "Judge request rejected" };
+          if (j.ok) verdict = await j.json();
+          else {
+            const d = await j.json().catch(() => ({}));
+            const why = Array.isArray(d.detail) ? d.detail.map((x) => x.msg).join("; ") : (d.detail || "");
+            verdict = { ok: false, error: "Judge request rejected (HTTP " + j.status + (why ? ": " + why : "") + ")" };
+          }
         } catch (e) { verdict = { ok: false, error: "Could not reach the judge" }; }
       }
       lastVerdict = (verdict && verdict.ok) ? verdict : null; lastResults = results;

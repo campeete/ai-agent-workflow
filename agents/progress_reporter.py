@@ -77,6 +77,9 @@ def run(agent_input: ProgressReporterInput) -> ProgressReporterOutput:
     return ProgressReporterOutput(results=results, referee=verdict)
 
 
+JUDGE_TEXT_LIMIT = 6000
+
+
 class JudgeInput(BaseModel):
     """Answers gathered by the dashboard (one request per model), sent back to be judged."""
 
@@ -89,8 +92,10 @@ class JudgeInput(BaseModel):
         for r in value:
             if r.model_id not in ALL_MODELS:
                 raise ValueError("Unknown model in results")
-            if len(r.text) > 5000:
+            if len(r.text) > 20_000:
                 raise ValueError("Answer too long")
+            # Long answers are trimmed, not rejected, so one wordy model can't sink the judging.
+            r.text = r.text[:JUDGE_TEXT_LIMIT]
         return value
 
 
