@@ -38,6 +38,22 @@
   .result.picked { outline: 3px solid #fff; outline-offset: 3px; }
   .badge { border: 1px solid #fff; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
   .verdict { border: 2px solid #fff; padding: 20px; margin-bottom: 16px; }
+  .table-wrap { position: relative; width: 100%; max-width: 560px; aspect-ratio: 1; margin: 8px auto 24px; }
+  .ring { position: absolute; inset: 14%; border: 1px solid #fff; border-radius: 50%; opacity: .35; }
+  .center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 34%; text-align: center; }
+  .center .glyph { font-size: 40px; line-height: 1; }
+  .seat { position: absolute; width: 104px; transform: translate(-50%, -50%); text-align: center; background: #000;
+          border: 1px solid #fff; padding: 10px 6px; cursor: pointer; opacity: .2; transition: opacity .6s, box-shadow .6s; }
+  .seat .glyph { font-size: 26px; line-height: 1.2; }
+  .seat .who { font-size: 12px; }
+  .seat .state { font-size: 11px; opacity: .8; }
+  .seat.thinking { animation: breathe 1.6s ease-in-out infinite; }
+  .seat.done { opacity: 1; }
+  .seat.failed { opacity: .35; border-style: dashed; }
+  .seat.best { box-shadow: 0 0 0 2px #fff, 0 0 24px 6px rgba(255,255,255,.55); }
+  .seat.selected { outline: 2px solid #fff; outline-offset: 4px; }
+  @keyframes breathe { 0%, 100% { opacity: .25; } 50% { opacity: .6; } }
+  @media (prefers-reduced-motion: reduce) { .seat.thinking { animation: none; opacity: .45; } .bar span { animation: none; } }
   .result.failed { border-style: dashed; opacity: .7; }
   .result pre { white-space: pre-wrap; word-wrap: break-word; font: 14px/1.5 -apple-system, sans-serif; margin: 12px 0; }
   .row { display: flex; justify-content: space-between; gap: 8px; }
@@ -79,6 +95,13 @@ Add live API URL to README and deploy guide</textarea>
       <button id="run">Run</button>
       <span class="muted" id="hint"></span>
       <div class="bar" id="bar"><span></span></div>
+    </section>
+    <section class="card" id="table-card" hidden>
+      <h2>Round table</h2>
+      <p class="muted">Seats glow as each model thinks, light up when its answer lands, and the referee's pick shines brightest. Click a seat to jump to its answer.</p>
+      <div class="table-wrap" id="table"><div class="ring"></div>
+        <div class="center"><div class="glyph" id="judge-glyph">⚖&#xFE0E;</div><div class="muted" id="judge-state">The Judge waits</div></div>
+      </div>
     </section>
     <section id="verdict"></section>
     <section class="results" id="results"></section>
@@ -122,14 +145,14 @@ Add live API URL to README and deploy guide</textarea>
     const box = $("models"), info = $("model-info");
     box.replaceChildren(); info.replaceChildren();
     let models = [];
-    try { models = await (await fetch("/models")).json(); } catch (e) { info.append(el("li", "Could not load models.")); return; }
+    try { models = await (await fetch("/models")).json(); window.MODEL_INFO = Object.fromEntries(models.map((m) => [m.id, m])); } catch (e) { info.append(el("li", "Could not load models.")); return; }
     for (const m of models) {
       const label = el("label", null, m.available ? "" : "na");
       const cb = el("input"); cb.type = "checkbox"; cb.value = m.id; cb.checked = m.available && m.default_on; cb.disabled = !m.available;
       label.append(cb, document.createTextNode(" " + m.label));
       box.append(label);
       const li = el("li");
-      li.append(el("strong", m.label), el("div", m.best_for + " · " + m.cost, "muted"),
+      li.append(el("strong", m.symbol + " " + m.label), el("div", m.persona, "muted"), el("div", m.best_for + " · " + m.cost, "muted"),
                 el("div", m.available ? "Key set" : "Key not set", "muted"));
       info.append(li);
     }
@@ -165,6 +188,7 @@ Add live API URL to README and deploy guide</textarea>
     results = [...results].sort((a, b) => ((b.model_id === bestId) - (a.model_id === bestId)) || (b.ok - a.ok) || ((scores[b.model_id] || 0) - (scores[a.model_id] || 0)) || (a.ms - b.ms));  // referee pick, then by score
     for (const r of results) {
       const card = el("div", null, "result" + (r.ok ? "" : " failed"));
+      card.id = "card-" + r.model_id;
       const head = el("div", null, "row");
       const name = el("strong", r.label);
       if (r.model_id === bestId) name.append(el("span", "Referee's pick", "badge"));
@@ -184,25 +208,88 @@ Add live API URL to README and deploy guide</textarea>
     }
   }
 
+  function buildTable(ids) {
+    const table = $("table");
+    table.querySelectorAll(".seat").forEach((n) => n.remove());
+    ids.forEach((id, i) => {
+      const info = (window.MODEL_INFO || {})[id] || { label: id, symbol: "○", persona: "" };
+      const angle = (2 * Math.PI * i) / ids.length - Math.PI / 2;
+      const seat = el("div", null, "seat thinking");
+      seat.id = "seat-" + id;
+      seat.style.left = 50 + 40 * Math.cos(angle) + "%";
+      seat.style.top = 50 + 40 * Math.sin(angle) + "%";
+      seat.append(el("div", info.symbol, "glyph"), el("div", info.label, "who"), el("div", info.persona + " · thinking", "state"));
+      seat.onclick = () => {
+        const card = $("card-" + id);
+        document.querySelectorAll(".seat").forEach((n) => n.classList.remove("selected"));
+        seat.classList.add("selected");
+        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      };
+      table.append(seat);
+    });
+    $("judge-state").textContent = "The Judge waits";
+    $("table-card").hidden = false;
+  }
+
+  function lightSeat(r) {
+    const seat = $("seat-" + r.model_id);
+    if (!seat) return;
+    seat.classList.remove("thinking");
+    seat.classList.add(r.ok ? "done" : "failed");
+    const persona = ((window.MODEL_INFO || {})[r.model_id] || {}).persona || "";
+    seat.querySelector(".state").textContent = persona + " · " + (r.ok ? (r.ms / 1000).toFixed(1) + "s" : "couldn't answer");
+  }
+
+  async function askOne(id, commits) {
+    try {
+      const r = await fetch("/agents/progress_reporter/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commit_messages: commits, models: [id], referee: false }),
+      });
+      if (!r.ok) throw new Error("rejected");
+      return (await r.json()).results[0];
+    } catch (e) {
+      const info = (window.MODEL_INFO || {})[id] || { label: id };
+      return { model_id: id, label: info.label, ok: false, text: "", ms: 0, error: "Request failed" };
+    }
+  }
+
   $("run").onclick = async () => {
     const commits = $("commits").value.split("\n").map((s) => s.trim()).filter(Boolean);
     const models = [...document.querySelectorAll("#models input:checked")].map((c) => c.value);
     if (!commits.length) { $("hint").textContent = "Add at least one commit message."; return; }
     if (!models.length) { $("hint").textContent = "Tick at least one model."; return; }
-    $("hint").textContent = "Asking " + models.length + " model(s) at once…";
-    $("run").disabled = true; $("bar").classList.add("show"); $("results").replaceChildren(); $("verdict").replaceChildren();
+    if (commits.length > 200 || commits.some((c) => c.length > 500)) { $("hint").textContent = "Max 200 lines, 500 characters each."; return; }
+    $("hint").textContent = "The table is thinking…";
+    $("run").disabled = true; $("bar").classList.add("show");
+    $("results").replaceChildren(); $("verdict").replaceChildren();
+    buildTable(models);
     try {
-      const r = await fetch("/agents/progress_reporter/run", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commit_messages: commits, models, referee: $("use-referee").checked }),
-      });
-      const data = await r.json();
-      if (!r.ok) { $("hint").textContent = "Request rejected: check the commit list (max 200 lines, 500 characters each)."; return; }
-      renderVerdict(data.referee, data.results);
-      renderResults(data.results, commits, data.referee);
-      $("hint").textContent = "Done. Pick the clearest update.";
-    } catch (e) {
-      $("hint").textContent = "Could not reach the server.";
+      // One request per model, all at once, so each seat lights up the moment it answers.
+      const results = await Promise.all(models.map((id) => askOne(id, commits).then((r) => { lightSeat(r); return r; })));
+      let verdict = null;
+      const answered = results.filter((r) => r.ok);
+      if ($("use-referee").checked && answered.length >= 2) {
+        $("judge-state").textContent = "The Judge is deliberating…";
+        try {
+          const j = await fetch("/agents/progress_reporter/judge", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ commit_messages: commits, results }),
+          });
+          verdict = j.ok ? await j.json() : { ok: false, error: "Judge request rejected" };
+        } catch (e) { verdict = { ok: false, error: "Could not reach the judge" }; }
+      }
+      if (verdict && verdict.ok) {
+        const best = $("seat-" + verdict.best_model);
+        if (best) best.classList.add("best");
+        const info = (window.MODEL_INFO || {})[verdict.best_model] || { label: verdict.best_model };
+        $("judge-state").textContent = "The Judge picks " + info.label;
+      } else {
+        $("judge-state").textContent = verdict ? "The Judge could not decide" : "No judging this round";
+      }
+      renderVerdict(verdict, results);
+      renderResults(results, commits, verdict);
+      $("hint").textContent = "Done. Click a seat or pick the clearest update.";
     } finally {
       $("run").disabled = false; $("bar").classList.remove("show");
     }
