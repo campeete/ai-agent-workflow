@@ -19,6 +19,15 @@ Every push to `main` redeploys automatically. Deployment is Cameron's lane.
 ## Secrets
 Add them in Railway → service → Variables. Never in the repo. Read them in code with `os.environ["NAME"]`.
 
+| Variable | Used by | Get it at |
+|---|---|---|
+| `NVIDIA_API_KEY` | Nemotron models | build.nvidia.com → model page → Get API Key |
+| `GEMINI_API_KEY` | Gemini models | aistudio.google.com → Get API key |
+| `OPENAI_API_KEY` | GPT models (optional, prepaid) | platform.openai.com → API Keys |
+
+A model whose key is missing shows as "Key not set" on `/dashboard` and is skipped; nothing crashes.
+If a key is ever pasted anywhere public (chat, commit, screenshot), revoke it and create a new one.
+
 ## Troubleshooting
 | Symptom | Likely cause | Fix |
 |---|---|---|

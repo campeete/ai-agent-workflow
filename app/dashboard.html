@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Agent Workflow</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: #fff; font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header, footer { border-bottom: 1px solid #fff; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  footer { border-bottom: 0; border-top: 1px solid #fff; font-size: 13px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 14px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .08em; }
+  a { color: #fff; }
+  .layout { display: flex; min-height: calc(100vh - 140px); }
+  nav { flex: 0 0 20%; border-right: 1px solid #fff; padding: 24px; }
+  main { flex: 0 0 60%; padding: 24px 32px; }
+  aside { flex: 0 0 20%; border-left: 1px solid #fff; padding: 24px; }
+  .card { border: 1px solid #fff; padding: 20px; margin-bottom: 24px; }
+  .muted { opacity: .65; font-size: 13px; }
+  .agent { border: 1px solid #fff; padding: 12px; margin-bottom: 12px; }
+  .agent.off { opacity: .4; border-style: dashed; }
+  .agent.on { outline: 1px solid #fff; outline-offset: 3px; }
+  textarea { width: 100%; min-height: 120px; background: #000; color: #fff; border: 1px solid #fff; padding: 12px; font: 14px/1.5 ui-monospace, Menlo, monospace; }
+  .models { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+  .models label { border: 1px solid #fff; padding: 8px 12px; cursor: pointer; }
+  .models label.na { opacity: .4; cursor: not-allowed; }
+  button { background: #000; color: #fff; border: 1px solid #fff; padding: 10px 20px; font: inherit; cursor: pointer; margin: 4px 8px 4px 0; }
+  button:hover:not(:disabled) { background: #fff; color: #000; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .bar { height: 6px; border: 1px solid #fff; margin: 16px 0; overflow: hidden; display: none; }
+  .bar.show { display: block; }
+  .bar span { display: block; height: 100%; width: 30%; background: #fff; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+  .results { display: flex; gap: 16px; flex-wrap: wrap; }
+  .result { flex: 1 1 220px; border: 1px solid #fff; padding: 16px; }
+  .result.picked { outline: 3px solid #fff; outline-offset: 3px; }
+  .result.failed { border-style: dashed; opacity: .7; }
+  .result pre { white-space: pre-wrap; word-wrap: break-word; font: 14px/1.5 -apple-system, sans-serif; margin: 12px 0; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  ul { padding-left: 18px; margin: 0; }
+  li { margin-bottom: 8px; }
+  #status::before { content: "●"; margin-right: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Agent Workflow</h1>
+  <span id="status" class="muted">checking…</span>
+</header>
+
+<div class="layout">
+  <nav>
+    <h3>Agents</h3>
+    <div class="agent off"><strong>1 · Brief reader</strong><div class="muted">Reads the challenge, lists what judges want. Coming soon.</div></div>
+    <div class="agent off"><strong>2 · Repo reader</strong><div class="muted">Reads our code, explains how it fits together. Coming soon.</div></div>
+    <div class="agent off"><strong>3 · Visuals</strong><div class="muted">Draws the architecture diagram. Coming soon.</div></div>
+    <div class="agent off"><strong>4 · Slides</strong><div class="muted">Builds the pitch deck. Coming soon.</div></div>
+    <div class="agent on"><strong>5 · Progress reporter</strong><div class="muted">Turns commits into plain-English updates. Live.</div></div>
+  </nav>
+
+  <main>
+    <section class="card">
+      <h2>Progress reporter</h2>
+      <p class="muted">Paste commit messages, one per line. Every model you tick writes its own update at the same time. Read them side by side and pick the best.</p>
+      <textarea id="commits">Add skeleton for the 5 agents
+Add Railway deploy config and guide
+Add live API URL to README and deploy guide</textarea>
+      <div class="models" id="models"></div>
+      <button id="run">Run</button>
+      <span class="muted" id="hint"></span>
+      <div class="bar" id="bar"><span></span></div>
+    </section>
+    <section class="results" id="results"></section>
+  </main>
+
+  <aside>
+    <h3>Models</h3>
+    <ul id="model-info"><li class="muted">Loading…</li></ul>
+    <h3 style="margin-top:24px">Security</h3>
+    <ul class="muted">
+      <li>Commit messages are treated as data. Instructions hidden inside them are ignored.</li>
+      <li>API keys live on the server only. This page never sees them.</li>
+      <li>Answers are shown as plain text, never as HTML.</li>
+    </ul>
+  </aside>
+</div>
+
+<footer>
+  <span class="muted">Picks are saved in this browser only.</span>
+  <span><a href="/docs">API docs</a> · <a href="/redoc">Reference</a></span>
+</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, text, cls) => { const n = document.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; return n; };
+
+  function savePick(entry) {
+    try {
+      const log = JSON.parse(localStorage.getItem("picks") || "[]");
+      log.push(entry);
+      localStorage.setItem("picks", JSON.stringify(log.slice(-200)));
+    } catch (e) { /* storage unavailable: pick still shows on screen */ }
+  }
+
+  async function loadStatus() {
+    try { const r = await fetch("/health"); $("status").textContent = r.ok ? "Online" : "Problem"; }
+    catch (e) { $("status").textContent = "Offline"; }
+  }
+
+  async function loadModels() {
+    const box = $("models"), info = $("model-info");
+    box.replaceChildren(); info.replaceChildren();
+    let models = [];
+    try { models = await (await fetch("/models")).json(); } catch (e) { info.append(el("li", "Could not load models.")); return; }
+    for (const m of models) {
+      const label = el("label", null, m.available ? "" : "na");
+      const cb = el("input"); cb.type = "checkbox"; cb.value = m.id; cb.checked = m.available; cb.disabled = !m.available;
+      label.append(cb, document.createTextNode(" " + m.label));
+      box.append(label);
+      const li = el("li");
+      li.append(el("strong", m.label), el("div", m.best_for + " · " + m.cost, "muted"),
+                el("div", m.available ? "Key set" : "Key not set", "muted"));
+      info.append(li);
+    }
+    if (!models.some((m) => m.available)) $("hint").textContent = "No API keys set on the server yet.";
+  }
+
+  function renderResults(results, commits) {
+    const box = $("results"); box.replaceChildren();
+    for (const r of results) {
+      const card = el("div", null, "result" + (r.ok ? "" : " failed"));
+      const head = el("div", null, "row");
+      head.append(el("strong", r.label), el("span", (r.ms / 1000).toFixed(1) + "s", "muted"));
+      card.append(head, el("pre", r.ok ? r.text : "Failed: " + (r.error || "unknown error")));
+      if (r.ok) {
+        const pick = el("button", "Pick this one");
+        pick.onclick = () => {
+          box.querySelectorAll(".result").forEach((c) => c.classList.remove("picked"));
+          card.classList.add("picked");
+          savePick({ agent: "progress_reporter", model: r.model_id, at: new Date().toISOString(), commits: commits.length });
+        };
+        card.append(pick);
+      }
+      box.append(card);
+    }
+  }
+
+  $("run").onclick = async () => {
+    const commits = $("commits").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const models = [...document.querySelectorAll("#models input:checked")].map((c) => c.value);
+    if (!commits.length) { $("hint").textContent = "Add at least one commit message."; return; }
+    if (!models.length) { $("hint").textContent = "Tick at least one model."; return; }
+    $("hint").textContent = "Asking " + models.length + " model(s) at once…";
+    $("run").disabled = true; $("bar").classList.add("show"); $("results").replaceChildren();
+    try {
+      const r = await fetch("/agents/progress_reporter/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commit_messages: commits, models }),
+      });
+      const data = await r.json();
+      if (!r.ok) { $("hint").textContent = "Request rejected: check the commit list (max 200 lines, 500 characters each)."; return; }
+      renderResults(data.results, commits);
+      $("hint").textContent = "Done. Pick the clearest update.";
+    } catch (e) {
+      $("hint").textContent = "Could not reach the server.";
+    } finally {
+      $("run").disabled = false; $("bar").classList.remove("show");
+    }
+  };
+
+  loadStatus(); loadModels();
+</script>
+</body>
+</html>
