@@ -153,7 +153,8 @@ Add live API URL to README and deploy guide</textarea>
       items.forEach((t) => ul.append(el("li", t)));
       card.append(el("div", title, "muted"), ul);
     }
-    card.append(el("div", "Judged by " + v.referee_model + " in " + (v.ms / 1000).toFixed(1) + "s · it saw the answers without model names", "muted"));
+    const note = v.self_judged ? " · warning: the referee also answered this run" : " · it did not answer this run";
+    card.append(el("div", "Judged by " + v.referee_model + " in " + (v.ms / 1000).toFixed(1) + "s · it saw the answers without model names" + note, "muted"));
     box.append(card);
   }
 
