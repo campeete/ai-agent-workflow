@@ -75,3 +75,16 @@ def test_bad_key(monkeypatch):
 def test_needs_password_when_set(monkeypatch):
     monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
     assert client.post("/speak", json={"text": "hi"}).status_code == 401
+
+
+@pytest.mark.parametrize("status,body,expected", [
+    (401, {"detail": {"status": "missing_permissions", "message": "needs text_to_speech"}}, "Text to Speech"),
+    (401, {"detail": {"status": "detected_unusual_activity", "message": "Free Tier usage disabled"}}, "free-tier"),
+    (404, {"detail": {"status": "voice_not_found", "message": "nope"}}, "ELEVENLABS_VOICE_ID"),
+    (401, {"detail": {"status": "something_new", "message": "x"}}, "something_new"),
+])
+def test_explains_elevenlabs_errors(monkeypatch, status, body, expected):
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "v1")
+    monkeypatch.setattr(voice.httpx, "Client", fake_transport(lambda req: httpx.Response(status, json=body)))
+    detail = client.post("/speak", json={"text": "hi"}).json()["detail"]
+    assert expected in detail
