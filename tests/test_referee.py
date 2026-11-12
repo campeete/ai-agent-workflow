@@ -60,10 +60,29 @@ def test_referee_never_judges_its_own_answer(monkeypatch):
         return call(model_id, system, user)
     monkeypatch.setattr(referee, "call_model", spy)
     v = referee.judge("t", "i", [res("nemotron-lightning", "x"), res("mistral-large-4", "y")])
-    assert seen == ["nemotron-super"] and v.referee_model == "nemotron-super" and not v.self_judged
+    assert seen == ["nemotron-bolt"] and v.referee_model == "nemotron-bolt" and not v.self_judged
 
 
 def test_flags_self_judging_when_unavoidable(monkeypatch):
     monkeypatch.setattr(referee, "call_model", fake_reply('{"best":"A","reason":"r"}'))
     panel = [res(m, "x") for m in referee.REFEREE_CANDIDATES]
     assert referee.judge("t", "i", panel).self_judged
+
+
+def test_falls_back_when_referee_fails(monkeypatch):
+    seen = []
+    def flaky(model_id, system, user):
+        seen.append(model_id)
+        ok = model_id != "nemotron-bolt"
+        return ModelResult(model_id=model_id, label=model_id, ok=ok,
+                           text='{"best":"A","reason":"r"}' if ok else "", ms=1, error=None if ok else "down")
+    monkeypatch.setattr(referee, "call_model", flaky)
+    v = referee.judge("t", "i", [res("mistral-large-4", "x"), res("minimax-m3-flash", "y")])
+    assert seen == ["nemotron-bolt", "nemotron-lightning"] and v.ok and v.referee_model == "nemotron-lightning"
+
+
+def test_referee_hidden_from_panel():
+    from agents.models import list_models
+    from agents.progress_reporter import ALL_MODELS
+    assert "nemotron-bolt" not in ALL_MODELS
+    assert "nemotron-bolt" not in [m.id for m in list_models()]

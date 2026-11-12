@@ -50,9 +50,20 @@ class ModelSpec:
     extra_body: dict = field(default_factory=dict)  # provider-specific options
     timeout: int = 25  # seconds; big models get longer
     default_on: bool = True  # ticked on the dashboard by default
+    panel: bool = True  # False = never answers on the panel (e.g. the dedicated referee)
 
 
 MODELS: tuple[ModelSpec, ...] = (
+    ModelSpec(
+        id="nemotron-bolt",
+        provider="nvidia",
+        model="nvidia/nemotron-3.5-bolt-e4b",
+        label="Nemotron 3.5 Bolt (referee)",
+        best_for="Dedicated referee: never answers, only judges",
+        cost="free tier",
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        panel=False,
+    ),
     ModelSpec(
         id="nemotron-lightning",
         provider="nvidia",
@@ -159,6 +170,9 @@ def _key_for(spec: ModelSpec) -> str | None:
     return os.environ.get(PROVIDERS[spec.provider]["key_env"]) or None
 
 
+PANEL_MODELS = tuple(m for m in MODELS if m.panel)
+
+
 def list_models() -> list[ModelInfo]:
     return [
         ModelInfo(
@@ -170,7 +184,7 @@ def list_models() -> list[ModelInfo]:
             available=_key_for(m) is not None,
             default_on=m.default_on,
         )
-        for m in MODELS
+        for m in PANEL_MODELS
     ]
 
 
