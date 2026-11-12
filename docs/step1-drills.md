@@ -22,7 +22,7 @@ Do these before building any agents. Each of you does every drill.
 3. Add a `/time` call to `requests.http`, test it, then commit and push.
 
 ## Drill D: the teammate loop
-1. Each of you adds your name under "Team" in `README.md` on your own branch: `git switch -c add-<name>`.
+1. Each of you adds one line about yourself (a skill or goal) to your row under "Team" in `README.md`, on your own branch: `git switch -c about-<name>`.
 2. Push and open a pull request: `gh pr create --fill`.
 3. The other person reviews and merges it on GitHub.
 4. `git switch main && git pull`, then use GitLens (File History, inline blame) to see who changed what.
