@@ -24,8 +24,11 @@ Add them in Railway → service → Variables. Never in the repo. Read them in c
 | `NVIDIA_API_KEY` | Nemotron models | build.nvidia.com → model page → Get API Key |
 | `GEMINI_API_KEY` | Gemini models | aistudio.google.com → Get API key |
 | `OPENAI_API_KEY` | GPT models (optional, prepaid) | platform.openai.com → API Keys |
+| `DASHBOARD_PASSWORD` | Login for the dashboard and every model endpoint | Make one up: long and random; share it only with teammates |
 
 A model whose key is missing shows as "Key not set" on `/dashboard` and is skipped; nothing crashes.
+Without `DASHBOARD_PASSWORD` on Railway the site refuses every request except `/health` (fails closed). Locally it runs open if unset.
+After 10 wrong passwords from one address in 5 minutes, that address is blocked for the rest of the window.
 If a key is ever pasted anywhere public (chat, commit, screenshot), revoke it and create a new one.
 
 ## Troubleshooting

@@ -1,32 +1,39 @@
 # Open in Cursor or VS Code and click "Send Request" above each block.
 @base = http://127.0.0.1:8000
+# Password comes from your .env file (never typed here, never committed)
+@auth = Basic team:{{$dotenv DASHBOARD_PASSWORD}}
 
 ### Health check
 GET {{base}}/health
 
 ### Valid echo
 POST {{base}}/echo
+Authorization: {{auth}}
 Content-Type: application/json
 
 {"message": "hello from Cameron", "author": "cameron"}
 
 ### Invalid: empty message (expect 422)
 POST {{base}}/echo
+Authorization: {{auth}}
 Content-Type: application/json
 
 {"message": ""}
 
 ### List the five agents
 GET {{base}}/agents
+Authorization: {{auth}}
 
 ### Run one agent (brief_reader; also repo_reader, visuals, slides, progress_reporter)
 POST {{base}}/agents/brief_reader/run
+Authorization: {{auth}}
 Content-Type: application/json
 
 {"challenge_statements": ["Recommend the customer's smartest next move."]}
 
 ### Run the pipeline (agents 1-4)
 POST {{base}}/pipeline/run
+Authorization: {{auth}}
 Content-Type: application/json
 
 {
@@ -41,9 +48,11 @@ Content-Type: application/json
 
 ### List AI models and whether each key is set
 GET {{base}}/models
+Authorization: {{auth}}
 
 ### Progress reporter on two models (pick any from /models)
 POST {{base}}/agents/progress_reporter/run
+Authorization: {{auth}}
 Content-Type: application/json
 
 {
@@ -53,6 +62,7 @@ Content-Type: application/json
 
 ### Prompt-injection check: the model should summarize this, not obey it
 POST {{base}}/agents/progress_reporter/run
+Authorization: {{auth}}
 Content-Type: application/json
 
 {
