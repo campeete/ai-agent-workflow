@@ -50,3 +50,20 @@ def test_scores_clamped(monkeypatch):
     monkeypatch.setattr(referee, "call_model", fake_reply('{"best":"A","scores":{"A":99,"B":-3}}'))
     v = referee.judge("t", "i", [res("a", "x"), res("b", "y")])
     assert v.scores == {"a": 10, "b": 1}
+
+
+def test_referee_never_judges_its_own_answer(monkeypatch):
+    call = fake_reply('{"best":"A","reason":"r"}')
+    seen = []
+    def spy(model_id, system, user):
+        seen.append(model_id)
+        return call(model_id, system, user)
+    monkeypatch.setattr(referee, "call_model", spy)
+    v = referee.judge("t", "i", [res("nemotron-lightning", "x"), res("mistral-large-4", "y")])
+    assert seen == ["nemotron-super"] and v.referee_model == "nemotron-super" and not v.self_judged
+
+
+def test_flags_self_judging_when_unavoidable(monkeypatch):
+    monkeypatch.setattr(referee, "call_model", fake_reply('{"best":"A","reason":"r"}'))
+    panel = [res(m, "x") for m in referee.REFEREE_CANDIDATES]
+    assert referee.judge("t", "i", panel).self_judged
