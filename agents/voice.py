@@ -64,6 +64,41 @@ def _british_voice(client: httpx.Client, key: str) -> str:
     raise VoiceError("No British voice found: set ELEVENLABS_VOICE_ID")
 
 
+# ElevenLabs' own error codes, in plain English.
+KNOWN_REASONS = {
+    "missing_permissions": "The key doesn't have Text to Speech turned on: edit the key in ElevenLabs and enable it",
+    "invalid_api_key": "ElevenLabs says the key is invalid or was deleted",
+    "detected_unusual_activity": "ElevenLabs blocked free-tier use from this network; a paid plan or another network fixes it",
+    "quota_exceeded": "ElevenLabs credits used up for this month",
+    "voice_not_found": "ELEVENLABS_VOICE_ID isn't a voice this account can use",
+}
+
+
+def _explain(r: httpx.Response) -> str:
+    """Turn an ElevenLabs error into one plain sentence (never includes the key)."""
+    status, message = "", ""
+    try:
+        detail = r.json().get("detail")
+        if isinstance(detail, dict):
+            status, message = str(detail.get("status", "")), str(detail.get("message", ""))
+        elif isinstance(detail, str):
+            message = detail
+    except ValueError:
+        pass
+    if status in KNOWN_REASONS:
+        return KNOWN_REASONS[status]
+    if r.status_code == 429:
+        return "ElevenLabs rate limit or quota reached"
+    if r.status_code in (401, 403):
+        base = "ElevenLabs rejected the key or its permissions"
+    elif r.status_code == 404:
+        base = "ELEVENLABS_VOICE_ID isn't a voice this account can use"
+    else:
+        base = f"ElevenLabs error {r.status_code}"
+    extra = (status or message)[:160]
+    return f"{base} ({extra})" if extra else base
+
+
 def speak(text: str) -> bytes:
     """Return MP3 audio of `text` (trimmed to MAX_CHARS)."""
     text = " ".join(text.split())[:MAX_CHARS]
@@ -84,10 +119,6 @@ def speak(text: str) -> bytes:
         raise VoiceError("Voice service timed out") from exc
     except httpx.HTTPError as exc:
         raise VoiceError("Could not reach the voice service") from exc
-    if r.status_code in (401, 403):
-        raise VoiceError("ElevenLabs rejected the key or its permissions")
-    if r.status_code == 429:
-        raise VoiceError("ElevenLabs rate limit or quota reached")
     if r.status_code >= 400:
-        raise VoiceError(f"ElevenLabs error {r.status_code}")
+        raise VoiceError(_explain(r))
     return r.content
