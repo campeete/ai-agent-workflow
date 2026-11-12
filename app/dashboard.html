@@ -74,7 +74,7 @@
   <nav>
     <h3>Agents</h3>
     <div class="agent live" data-agent="brief_reader" role="button" tabindex="0"><strong>1 · Brief reader</strong><div class="muted">Reads the challenge, lists what judges want. Live.</div></div>
-    <div class="agent off"><strong>2 · Repo reader</strong><div class="muted">Reads our code, explains how it fits together. Coming soon.</div></div>
+    <div class="agent live" data-agent="repo_reader" role="button" tabindex="0"><strong>2 · Repo reader</strong><div class="muted">Reads our code, explains how it fits together. Live.</div></div>
     <div class="agent off"><strong>3 · Visuals</strong><div class="muted">Draws the architecture diagram. Coming soon.</div></div>
     <div class="agent off"><strong>4 · Slides</strong><div class="muted">Builds the pitch deck. Coming soon.</div></div>
     <div class="agent live on" data-agent="progress_reporter" role="button" tabindex="0"><strong>5 · Progress reporter</strong><div class="muted">Turns commits into plain-English updates. Live.</div></div>
@@ -113,7 +113,8 @@
     <ul id="model-info"><li class="muted">Loading…</li></ul>
     <h3 style="margin-top:24px">Security</h3>
     <ul class="muted">
-      <li>Pasted text (commits, challenge briefs) is treated as data. Instructions hidden inside it are ignored.</li>
+      <li>Pasted text (commits, challenge briefs, code) is treated as data. Instructions hidden inside it are ignored.</li>
+      <li>Code is scrubbed of keys and passwords before any model sees it.</li>
       <li>API keys live on the server only. This page never sees them.</li>
       <li>Answers are shown as plain text, never as HTML.</li>
     </ul>
@@ -127,24 +128,44 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  // What each live agent asks for. "field" is the API field; "split" turns the box into a list.
+  // What each live agent asks for. parse() turns the text box into the request fields,
+  // or returns an error to show instead of sending anything.
+  const listParser = (field, split, check, empty) => (t) => {
+    const items = split(t);
+    if (!items.length) return { error: empty };
+    const tooBig = check(items);
+    return tooBig ? { error: tooBig } : { body: { [field]: items }, count: items.length };
+  };
+  const GITHUB_REPO = /^(?:https?:\/\/)?(?:www\.)?github\.com\/[^\/\s]+\/[^\/\s]+\/?$|^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
   const AGENT_UI = {
     progress_reporter: {
       title: "Progress reporter", field: "commit_messages", noun: "update",
       help: "Paste commit messages, one per line. Every model you tick writes its own update at the same time. Read them side by side and pick the best.",
       sample: "Add skeleton for the 5 agents\nAdd Railway deploy config and guide\nAdd live API URL to README and deploy guide",
-      split: (t) => t.split("\n").map((s) => s.trim()).filter(Boolean),
-      check: (items) => (items.length > 200 || items.some((c) => c.length > 500)) ? "Max 200 lines, 500 characters each." : "",
-      empty: "Add at least one commit message.",
+      parse: listParser("commit_messages", (t) => t.split("\n").map((s) => s.trim()).filter(Boolean),
+        (items) => (items.length > 200 || items.some((c) => c.length > 500)) ? "Max 200 lines, 500 characters each." : "",
+        "Add at least one commit message."),
     },
     brief_reader: {
       title: "Brief reader", field: "challenge_statements", noun: "breakdown",
       help: "Paste the hackathon challenge: the track description, rules, judging criteria. For several tracks, put a line with just --- between them. Each model breaks it down into what to build, how it's judged and a plan.",
       sample: "Track: Civic Tech\nBuild a tool that helps residents report and track city service requests (potholes, broken streetlights).\nJudging: impact 40%, technical execution 30%, design 20%, presentation 10%.\nMust use at least one public city data API. Teams of up to 4. Demo is 3 minutes.",
-      split: (t) => t.split(/^\s*---\s*$/m).map((s) => s.trim()).filter(Boolean),
-      check: (items) => (items.length > 10 || items.some((c) => c.length > 8000) || items.join("").length > 20000)
-        ? "Max 10 sections, 8,000 characters each, 20,000 in total." : "",
-      empty: "Paste the challenge text first.",
+      parse: listParser("challenge_statements", (t) => t.split(/^\s*---\s*$/m).map((s) => s.trim()).filter(Boolean),
+        (items) => (items.length > 10 || items.some((c) => c.length > 8000) || items.join("").length > 20000)
+          ? "Max 10 sections, 8,000 characters each, 20,000 in total." : "",
+        "Paste the challenge text first."),
+    },
+    repo_reader: {
+      title: "Repo reader", noun: "explanation",
+      help: "Type a public GitHub repo (owner/repo or its github.com link), or paste code. Secrets are blanked out before any model sees it, and hidden instructions in the code get flagged. Each model explains the parts, data flow, endpoints, how to run it and the risks.",
+      sample: "campeete/ai-agent-workflow",
+      parse: (t) => {
+        const text = t.trim();
+        if (!text) return { error: "Type a GitHub repo or paste some code." };
+        if (!text.includes("\n") && GITHUB_REPO.test(text)) return { body: { github: text }, count: 1 };
+        if (text.length > 60000) return { error: "Pasted code is limited to 60,000 characters. Use a GitHub repo for bigger projects." };
+        return { body: { code: text }, count: 1 };
+      },
     },
   };
   let agent = "progress_reporter";
@@ -217,7 +238,7 @@
     box.append(card);
   }
 
-  function renderResults(results, commits, verdict) {
+  function renderResults(results, itemCount, verdict) {
     const box = $("results"); box.replaceChildren();
     const scores = (verdict && verdict.ok) ? verdict.scores : {};
     const bestId = (verdict && verdict.ok) ? verdict.best_model : null;
@@ -236,7 +257,7 @@
         pick.onclick = () => {
           box.querySelectorAll(".result").forEach((c) => c.classList.remove("picked"));
           card.classList.add("picked");
-          savePick({ agent, model: r.model_id, at: new Date().toISOString(), items: commits.length });
+          savePick({ agent, model: r.model_id, at: new Date().toISOString(), items: itemCount });
         };
         card.append(pick);
       }
@@ -276,18 +297,43 @@
     seat.querySelector(".state").textContent = persona + " · " + (r.ok ? (r.ms / 1000).toFixed(1) + "s" : "couldn't answer");
   }
 
-  async function askOne(id, commits) {
+  let lastSafety = null;
+
+  async function askOne(id, body) {
+    const info = (window.MODEL_INFO || {})[id] || { label: id };
+    const failed = (why) => ({ model_id: id, label: info.label, ok: false, text: "", ms: 0, error: why });
     try {
       const r = await fetch("/agents/" + agent + "/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [AGENT_UI[agent].field]: commits, models: [id], referee: false }),
+        body: JSON.stringify({ ...body, models: [id], referee: false }),
       });
-      if (!r.ok) throw new Error("rejected");
-      return (await r.json()).results[0];
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const why = Array.isArray(d.detail) ? d.detail.map((x) => x.msg).join("; ") : (d.detail || "Request failed");
+        return failed(why);
+      }
+      if (d.safety) lastSafety = d.safety;
+      if (d.error) return failed(d.error);
+      return d.results[0];
     } catch (e) {
-      const info = (window.MODEL_INFO || {})[id] || { label: id };
-      return { model_id: id, label: info.label, ok: false, text: "", ms: 0, error: "Request failed" };
+      return failed("Request failed");
     }
+  }
+
+  function renderSafety(s) {
+    if (!s) return;
+    const card = el("div", null, "verdict");
+    const flags = s.injection_flags || [];
+    card.append(el("strong", flags.length ? "Safety check: flagged" : "Safety check: passed"));
+    card.append(el("p", "Read " + s.files + " file" + (s.files === 1 ? "" : "s") + " from " + s.source + " (" +
+      s.characters.toLocaleString() + " characters). " +
+      (s.secrets_removed ? s.secrets_removed + " secret" + (s.secrets_removed === 1 ? " was" : "s were") + " blanked out before sending." : "No secrets found."), "muted"));
+    if (flags.length) {
+      const ul = el("ul");
+      flags.forEach((f) => ul.append(el("li", "Possible prompt injection: " + f + ". The models were told to ignore it; check the code.")));
+      card.append(ul);
+    }
+    $("verdict").append(card);
   }
 
   let lastVerdict = null, lastResults = [], audio = null;
@@ -322,12 +368,12 @@
 
   $("run").onclick = async () => {
     const ui = AGENT_UI[agent];
-    const commits = ui.split($("commits").value);
+    const parsed = ui.parse($("commits").value);
     const models = [...document.querySelectorAll("#models input:checked")].map((c) => c.value);
-    if (!commits.length) { $("hint").textContent = ui.empty; return; }
+    if (parsed.error) { $("hint").textContent = parsed.error; return; }
     if (!models.length) { $("hint").textContent = "Tick at least one model."; return; }
-    const tooBig = ui.check(commits);
-    if (tooBig) { $("hint").textContent = tooBig; return; }
+    const body = parsed.body;
+    lastSafety = null;
     $("hint").textContent = "The table is thinking…";
     $("run").disabled = true; $("bar").classList.add("show");
     $("results").replaceChildren(); $("verdict").replaceChildren();
@@ -335,7 +381,7 @@
     $("hear").hidden = true; if (audio) audio.pause();
     try {
       // One request per model, all at once, so each seat lights up the moment it answers.
-      const results = await Promise.all(models.map((id) => askOne(id, commits).then((r) => { lightSeat(r); return r; })));
+      const results = await Promise.all(models.map((id) => askOne(id, body).then((r) => { lightSeat(r); return r; })));
       let verdict = null;
       const answered = results.filter((r) => r.ok);
       if ($("use-referee").checked && answered.length >= 2) {
@@ -343,7 +389,7 @@
         try {
           const j = await fetch("/agents/" + agent + "/judge", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ [ui.field]: commits, results }),
+            body: JSON.stringify({ ...body, results }),
           });
           if (j.ok) verdict = await j.json();
           else {
@@ -364,7 +410,8 @@
         $("judge-state").textContent = verdict ? "The Judge could not decide" : "No judging this round";
       }
       renderVerdict(verdict, results);
-      renderResults(results, commits, verdict);
+      renderSafety(lastSafety);
+      renderResults(results, parsed.count, verdict);
       $("hint").textContent = "Done. Click a seat or pick the clearest " + ui.noun + ".";
     } finally {
       $("run").disabled = false; $("bar").classList.remove("show");
