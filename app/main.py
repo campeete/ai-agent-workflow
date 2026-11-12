@@ -9,12 +9,13 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from agents.models import ModelInfo, list_models
 from agents.progress_reporter import JudgeInput, judge_results
 from agents.referee import RefereeVerdict
+from agents.voice import MAX_CHARS, VoiceError, speak
 from app.auth import require_password
 
 from agents.pipeline import (
@@ -87,7 +88,7 @@ def dashboard() -> HTMLResponse:
     """The visual dashboard for running agents."""
     return HTMLResponse(DASHBOARD_HTML, headers={
         "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; "
-                                   "script-src 'unsafe-inline'; connect-src 'self'",
+                                   "script-src 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
     })
@@ -134,6 +135,20 @@ def unknown_agent(name: str) -> None:
 def judge_progress(body: JudgeInput) -> RefereeVerdict | None:
     """Referee judges answers the dashboard collected one model at a time."""
     return judge_results(body)
+
+
+class SpeakIn(BaseModel):
+    text: str = Field(min_length=1, max_length=MAX_CHARS)
+
+
+@app.post("/speak", responses={200: {"content": {"audio/mpeg": {}}}})
+def speak_text(body: SpeakIn) -> Response:
+    """Read text aloud in a British voice (used for the Judge's verdict)."""
+    try:
+        audio = speak(body.text)
+    except VoiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/pipeline/run")
