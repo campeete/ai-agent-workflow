@@ -1,0 +1,17 @@
+# Open in Cursor or VS Code and click "Send Request" above each block.
+@base = http://127.0.0.1:8000
+
+### Health check
+GET {{base}}/health
+
+### Valid echo
+POST {{base}}/echo
+Content-Type: application/json
+
+{"message": "hello from Cameron", "author": "cameron"}
+
+### Invalid: empty message (expect 422)
+POST {{base}}/echo
+Content-Type: application/json
+
+{"message": ""}
