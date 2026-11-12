@@ -38,7 +38,20 @@ def test_answer_cannot_break_out_of_its_tag(monkeypatch):
 def test_bad_json_is_rejected(monkeypatch):
     monkeypatch.setattr(referee, "call_model", fake_reply("I think B is best"))
     v = referee.judge("t", "i", [res("a", "x"), res("b", "y")])
-    assert not v.ok and "JSON" in v.error
+    assert not v.ok and "JSON" in v.error and "I think B" in v.error
+
+
+def test_bad_json_falls_through_to_next_referee(monkeypatch):
+    seen = []
+    def mixed(model_id, system, user):
+        seen.append(model_id)
+        text = "Sure, A is best!" if model_id == "nemotron-bolt" else '{"best":"B","reason":"r"}'
+        return ModelResult(model_id=model_id, label=model_id, ok=True, text=text, ms=1)
+    monkeypatch.setattr(referee, "call_model", mixed)
+    panel = [res(m, "x") for m in referee.REFEREE_CANDIDATES if m != "nemotron-bolt"]
+    v = referee.judge("t", "i", panel)
+    assert seen == ["nemotron-bolt", "nemotron-lightning"]
+    assert v.ok and v.referee_model == "nemotron-lightning" and v.self_judged
 
 
 def test_unknown_letter_is_rejected(monkeypatch):
@@ -67,6 +80,12 @@ def test_flags_self_judging_when_unavoidable(monkeypatch):
     monkeypatch.setattr(referee, "call_model", fake_reply('{"best":"A","reason":"r"}'))
     panel = [res(m, "x") for m in referee.REFEREE_CANDIDATES]
     assert referee.judge("t", "i", panel).self_judged
+
+
+def test_independent_referee_not_flagged(monkeypatch):
+    monkeypatch.setattr(referee, "call_model", fake_reply('{"best":"A","reason":"r"}'))
+    v = referee.judge("t", "i", [res("mistral-large-4", "x"), res("minimax-m3-flash", "y")])
+    assert v.referee_model == "nemotron-bolt" and not v.self_judged
 
 
 def test_falls_back_when_referee_fails(monkeypatch):
