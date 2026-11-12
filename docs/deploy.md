@@ -2,6 +2,8 @@
 
 Every push to `main` redeploys automatically. Deployment is Cameron's lane.
 
+**Live URL:** https://ai-agent-workflow-production-a63941fd.up.railway.app (Railway project ID `05bbc84a`, service `ai-agent-workflow`, region US East)
+
 ## How it runs
 - Railway builds with Railpack: it reads `pyproject.toml`, `uv.lock` and `.python-version` (3.12).
 - `railpack.json` sets the start command: uvicorn on `0.0.0.0:$PORT` (Railway picks the port).
@@ -9,7 +11,8 @@ Every push to `main` redeploys automatically. Deployment is Cameron's lane.
 - Health check: Railway calls `GET /health` and only switches traffic once it returns 200.
 
 ## First-time setup (done once)
-1. railway.com → New Project → Deploy from GitHub repo → `campeete/ai-agent-workflow`.
+1. `railway init` then `railway up` from the repo root (or railway.com → New Project → Deploy from GitHub repo).
+   Then service → Settings → Source → Connect Repo → `campeete/ai-agent-workflow`, branch `main`, and click **Apply changes** so pushes auto-deploy.
 2. Service → Settings → Networking → Generate Domain.
 3. Share the URL with the team. Add `/docs` to see every endpoint.
 
@@ -26,3 +29,6 @@ Add them in Railway → service → Variables. Never in the repo. Read them in c
 | Logs: `ModuleNotFoundError: agents` | Wrong start directory | Start command must run from repo root |
 
 Logs: `railway logs` (after `railway link`) or the Deployments tab.
+
+## Local CLI link
+`railway link` (pick the project) then `railway service` (pick `ai-agent-workflow`). `railway status` should show both.
