@@ -51,11 +51,15 @@ class ModelSpec:
     timeout: int = 25  # seconds; big models get longer
     default_on: bool = True  # ticked on the dashboard by default
     panel: bool = True  # False = never answers on the panel (e.g. the dedicated referee)
+    symbol: str = "○"  # monochrome glyph for its seat at the round table
+    persona: str = ""  # one-word character for its profile
 
 
 MODELS: tuple[ModelSpec, ...] = (
     ModelSpec(
         id="nemotron-bolt",
+        symbol="⚖︎",
+        persona="The Judge",
         provider="nvidia",
         model="nvidia/nemotron-3.5-bolt-e4b",
         label="Nemotron 3.5 Bolt (referee)",
@@ -66,6 +70,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="nemotron-lightning",
+        symbol="↯",
+        persona="The Sprinter",
         provider="nvidia",
         model="nvidia/nemotron-3.5-lightning-30b-a3b",
         label="Nemotron 3.5 Lightning",
@@ -75,6 +81,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="nemotron-super",
+        symbol="◆",
+        persona="The Strategist",
         provider="nvidia",
         model="nvidia/nemotron-3.5-super-vl-120b-a12b",
         label="Nemotron 3.5 Super",
@@ -84,6 +92,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="mistral-large-4",
+        symbol="≋",
+        persona="The Navigator",
         timeout=60,
         provider="nvidia",
         model="mistralai/mistral-large-4-1t-a52b",
@@ -93,6 +103,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="deepseek-v4-flash",
+        symbol="◎",
+        persona="The Diver",
         timeout=60,
         default_on=False,  # free endpoint often hangs; tick to try it
         provider="nvidia",
@@ -103,6 +115,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="minimax-m3-flash",
+        symbol="▲",
+        persona="The Builder",
         provider="nvidia",
         model="minimaxai/minimax-m3.1-flash",
         label="MiniMax M3.1 Flash",
@@ -111,6 +125,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="glm-5-flash",
+        symbol="✦",
+        persona="The Spark",
         timeout=60,
         default_on=False,  # free endpoint often hangs; tick to try it
         provider="nvidia",
@@ -121,6 +137,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="gemini-4-argon",
+        symbol="◈",
+        persona="The Sage",
         timeout=60,
         default_on=False,  # free tier allows very few calls
         provider="google",
@@ -131,6 +149,8 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
     ModelSpec(
         id="gemini-flash",
+        symbol="✧",
+        persona="The Messenger",
         timeout=60,
         provider="google",
         model="gemini-flash-latest",
@@ -151,6 +171,8 @@ class ModelInfo(BaseModel):
     cost: str
     available: bool  # True when its API key is set. The key itself is never returned.
     default_on: bool
+    symbol: str
+    persona: str
 
 
 class ModelResult(BaseModel):
@@ -183,6 +205,8 @@ def list_models() -> list[ModelInfo]:
             cost=m.cost,
             available=_key_for(m) is not None,
             default_on=m.default_on,
+            symbol=m.symbol,
+            persona=m.persona,
         )
         for m in PANEL_MODELS
     ]

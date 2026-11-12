@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from agents.models import ModelInfo, list_models
+from agents.progress_reporter import JudgeInput, judge_results
+from agents.referee import RefereeVerdict
 from app.auth import require_password
 
 from agents.pipeline import (
@@ -126,6 +128,12 @@ def unknown_agent(name: str) -> None:
         status_code=404,
         detail=f"Unknown agent. Known agents: {', '.join(known_agent_names())}",
     )
+
+
+@app.post("/agents/progress_reporter/judge")
+def judge_progress(body: JudgeInput) -> RefereeVerdict | None:
+    """Referee judges answers the dashboard collected one model at a time."""
+    return judge_results(body)
 
 
 @app.post("/pipeline/run")

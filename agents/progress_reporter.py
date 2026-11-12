@@ -75,3 +75,26 @@ def run(agent_input: ProgressReporterInput) -> ProgressReporterOutput:
     if agent_input.referee:
         verdict = judge("Write a short plain-English progress update from these commits.", user, results)
     return ProgressReporterOutput(results=results, referee=verdict)
+
+
+class JudgeInput(BaseModel):
+    """Answers gathered by the dashboard (one request per model), sent back to be judged."""
+
+    commit_messages: list[CommitMessage] = Field(min_length=1, max_length=200)
+    results: list[ModelResult] = Field(min_length=2, max_length=len(PANEL_MODELS))
+
+    @field_validator("results")
+    @classmethod
+    def known_and_bounded(cls, value: list[ModelResult]) -> list[ModelResult]:
+        for r in value:
+            if r.model_id not in ALL_MODELS:
+                raise ValueError("Unknown model in results")
+            if len(r.text) > 5000:
+                raise ValueError("Answer too long")
+        return value
+
+
+def judge_results(body: JudgeInput) -> RefereeVerdict | None:
+    """Run the referee on answers the dashboard collected itself."""
+    return judge("Write a short plain-English progress update from these commits.",
+                 build_user_message(body.commit_messages), body.results)
