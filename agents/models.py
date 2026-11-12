@@ -12,7 +12,7 @@ later: change its provider to "ollama". Nothing else changes.
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from openai import OpenAI
 from pydantic import BaseModel
@@ -41,6 +41,7 @@ class ModelSpec:
     label: str
     best_for: str
     cost: str  # "free tier", "low", "medium"
+    extra_body: dict = field(default_factory=dict)  # provider-specific options
 
 
 MODELS: tuple[ModelSpec, ...] = (
@@ -51,6 +52,7 @@ MODELS: tuple[ModelSpec, ...] = (
         label="Nemotron 3.5 Lightning",
         best_for="Fast, cheap summaries",
         cost="free tier",
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     ),
     ModelSpec(
         id="nemotron-super",
@@ -59,6 +61,7 @@ MODELS: tuple[ModelSpec, ...] = (
         label="Nemotron 3.5 Super",
         best_for="Careful reasoning, code, agent tasks",
         cost="free tier",
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     ),
     ModelSpec(
         id="gemini-flash",
@@ -70,7 +73,7 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
 )
 
-TIMEOUT_SECONDS = 45
+TIMEOUT_SECONDS = 25  # a slow provider fails fast instead of holding up the panel
 MAX_OUTPUT_TOKENS = 800
 
 
@@ -128,20 +131,37 @@ def call_model(model_id: str, system: str, user: str) -> ModelResult:
     start = time.perf_counter()
     try:
         client = OpenAI(base_url=PROVIDERS[spec.provider]["base_url"], api_key=key,
-                        timeout=TIMEOUT_SECONDS, max_retries=1)
+                        timeout=TIMEOUT_SECONDS, max_retries=0)
         response = client.chat.completions.create(
             model=spec.model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.3,
             max_tokens=MAX_OUTPUT_TOKENS,
+            extra_body=spec.extra_body or None,
         )
         text = (response.choices[0].message.content or "").strip()
-        return ModelResult(model_id=spec.id, label=spec.label, ok=True, text=text,
-                           ms=int((time.perf_counter() - start) * 1000))
+        ms = int((time.perf_counter() - start) * 1000)
+        if not text:
+            return ModelResult(model_id=spec.id, label=spec.label, ok=False, text="", ms=ms,
+                               error="Empty answer (the model used its budget without replying)")
+        return ModelResult(model_id=spec.id, label=spec.label, ok=True, text=text, ms=ms)
     except Exception as exc:  # report the error type only, never request details or keys
         return ModelResult(model_id=spec.id, label=spec.label, ok=False, text="",
                            ms=int((time.perf_counter() - start) * 1000),
-                           error=f"{type(exc).__name__}")
+                           error=_friendly_error(exc))
+
+
+def _friendly_error(exc: Exception) -> str:
+    name = type(exc).__name__
+    hints = {
+        "APITimeoutError": f"Timed out after {TIMEOUT_SECONDS}s (provider busy)",
+        "InternalServerError": "Provider is down or overloaded, try again soon",
+        "RateLimitError": "Rate limit hit, wait a minute",
+        "AuthenticationError": "API key rejected",
+        "PermissionDeniedError": "API key not allowed to use this model",
+        "NotFoundError": "Model name not found at this provider",
+    }
+    return hints.get(name, name)
 
 
 def call_panel(model_ids: list[str], system: str, user: str) -> list[ModelResult]:
