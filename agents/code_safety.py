@@ -38,6 +38,16 @@ ASSIGNMENT = re.compile(
     """
 )
 
+# An unquoted value that is a CONSTANT, an attribute or a function call: a reference to
+# where a secret is kept, not the secret itself. (A bare lowercase word still counts as a
+# possible secret, e.g. PASSWORD=hunter2hunter2.)
+CODE_REFERENCE = re.compile(
+    r"(?:[A-Z][A-Z0-9_]*"                                    # a CONSTANT_NAME
+    r"|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+(?:\(.*)?"  # settings.api_key, os.environ.get(
+    r"|[A-Za-z_][A-Za-z0-9_]*\(.*"                            # get_secret(
+    r")\)*"
+)
+
 INJECTION_PATTERNS = [
     ("ignore earlier instructions", re.compile(r"\b(?:ignore|disregard|forget)\b[^\n]{0,30}\b(?:previous|prior|above|earlier|all|your)\b[^\n]{0,20}\b(?:instructions|rules|prompts?)\b", re.I)),
     ("tries to change the AI's role", re.compile(r"\byou are now\b|\bact as (?:a|an|the)\b|\bnew instructions\s*:", re.I)),
@@ -61,7 +71,12 @@ def scrub_secrets(text: str) -> tuple[str, int]:
 
     def blank_value(m: re.Match) -> str:
         nonlocal count
-        if m.group(4) == REDACTED:
+        value, quoted = m.group(4), bool(m.group(3))
+        if value == REDACTED:
+            return m.group(0)
+        if not quoted and CODE_REFERENCE.fullmatch(value):
+            # `max_tokens=MAX_OUTPUT_TOKENS` or `token = os.environ.get(` names where a
+            # secret is kept; it isn't the secret itself, so leave it readable.
             return m.group(0)
         count += 1
         return f"{m.group(1)}{m.group(2)}{m.group(3)}{REDACTED}{m.group(5)}"

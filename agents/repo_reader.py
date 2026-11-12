@@ -26,7 +26,7 @@ from agents.panel import PanelChoice, as_data, check_results
 from agents.referee import RefereeVerdict, judge
 
 MAX_CODE = 60_000
-REFEREE_CONTEXT = 25_000  # the referee needs the gist of the code, not every line
+REFEREE_CONTEXT = 8_000  # the referee judges the answers; it needs the gist of the code, not every line
 CommitMessage = Annotated[str, Field(min_length=1, max_length=500)]
 
 TASK = "Explain how this codebase fits together for a teammate who hasn't read it."

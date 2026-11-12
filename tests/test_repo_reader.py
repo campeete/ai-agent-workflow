@@ -208,3 +208,20 @@ def test_pipeline_hands_the_best_explanation_to_visuals(monkeypatch, fake_panel)
 def test_needs_password_when_set(monkeypatch):
     monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
     assert client.post(RUN, json={"code": "x"}).status_code == 401
+
+
+def test_variable_names_are_not_mistaken_for_secrets():
+    code = 'r = client.chat(max_tokens=MAX_OUTPUT_TOKENS)\ntoken = os.environ.get("GITHUB_TOKEN")\nAPI_KEY = settings.api_key\n'
+    assert scrub_secrets(code) == (code, 0)
+
+
+def test_quoted_values_are_still_scrubbed_even_if_they_look_like_words():
+    clean, n = scrub_secrets('PASSWORD = "correcthorsebattery"')
+    assert "correcthorsebattery" not in clean and n == 1
+
+
+def test_most_telling_files_are_read_first():
+    paths = ["tests/test_app.py", "docs/guide.md", "app/dashboard.html", "agents/x.py", "app/main.py",
+             "pyproject.toml", "README.md"]
+    assert sorted(paths, key=gh._rank) == ["README.md", "pyproject.toml", "app/main.py", "agents/x.py",
+                                           "app/dashboard.html", "docs/guide.md", "tests/test_app.py"]
