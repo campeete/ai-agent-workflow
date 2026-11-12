@@ -16,13 +16,13 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
-from agents.models import MODELS, ModelResult, call_panel, get_model
+from agents.models import PANEL_MODELS, ModelResult, call_panel, get_model
 from agents.referee import RefereeVerdict, judge
 
 CommitMessage = Annotated[str, Field(min_length=1, max_length=500)]
 
-ALL_MODELS = [m.id for m in MODELS]
-DEFAULT_MODELS = [m.id for m in MODELS if m.default_on]
+ALL_MODELS = [m.id for m in PANEL_MODELS]
+DEFAULT_MODELS = [m.id for m in PANEL_MODELS if m.default_on]
 
 SYSTEM_PROMPT = """You write short progress updates for a two-person hackathon team.
 You will receive git commit messages inside <commits> tags.
@@ -41,14 +41,14 @@ class ProgressReporterInput(BaseModel):
 
     commit_messages: list[CommitMessage] = Field(min_length=1, max_length=200)
     models: list[str] = Field(default_factory=lambda: list(DEFAULT_MODELS),
-                              min_length=1, max_length=len(MODELS))
+                              min_length=1, max_length=len(PANEL_MODELS))
 
     referee: bool = True  # have a fast model judge the answers
 
     @field_validator("models")
     @classmethod
     def known_models(cls, value: list[str]) -> list[str]:
-        unknown = [m for m in value if get_model(m) is None]
+        unknown = [m for m in value if m not in ALL_MODELS]
         if unknown:
             raise ValueError(f"Unknown models. Choose from: {', '.join(ALL_MODELS)}")
         return list(dict.fromkeys(value))  # drop duplicates, keep order
