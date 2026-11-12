@@ -37,6 +37,14 @@
   @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
   .results { display: flex; gap: 16px; flex-wrap: wrap; }
   .result { flex: 1 1 220px; border: 1px solid #fff; padding: 16px; }
+  .result.wide { flex-basis: 100%; }
+  .diagram { border: 1px solid #fff; margin: 12px 0; overflow-x: auto; }
+  .diagram svg { display: block; min-width: 520px; }
+  .diagram text { fill: #fff; font: 12px -apple-system, sans-serif; }
+  .diagram .edge { stroke: #fff; fill: none; stroke-width: 1.2; }
+  .diagram .edge-label { font-size: 10px; paint-order: stroke; stroke: #000; stroke-width: 4px; }
+  .diagram .box { fill: #000; stroke: #fff; stroke-width: 1.5; }
+  .diagram .box.external { stroke-dasharray: 5 4; }
   .result.picked { outline: 3px solid #fff; outline-offset: 3px; }
   .badge { border: 1px solid #fff; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
   .verdict { border: 2px solid #fff; padding: 20px; margin-bottom: 16px; }
@@ -75,7 +83,7 @@
     <h3>Agents</h3>
     <div class="agent live" data-agent="brief_reader" role="button" tabindex="0"><strong>1 · Brief reader</strong><div class="muted">Reads the challenge, lists what judges want. Live.</div></div>
     <div class="agent live" data-agent="repo_reader" role="button" tabindex="0"><strong>2 · Repo reader</strong><div class="muted">Reads our code, explains how it fits together. Live.</div></div>
-    <div class="agent off"><strong>3 · Visuals</strong><div class="muted">Draws the architecture diagram. Coming soon.</div></div>
+    <div class="agent live" data-agent="visuals" role="button" tabindex="0"><strong>3 · Visuals</strong><div class="muted">Draws the architecture diagram. Live.</div></div>
     <div class="agent off"><strong>4 · Slides</strong><div class="muted">Builds the pitch deck. Coming soon.</div></div>
     <div class="agent live on" data-agent="progress_reporter" role="button" tabindex="0"><strong>5 · Progress reporter</strong><div class="muted">Turns commits into plain-English updates. Live.</div></div>
   </nav>
@@ -155,6 +163,17 @@
           ? "Max 10 sections, 8,000 characters each, 20,000 in total." : "",
         "Paste the challenge text first."),
     },
+    visuals: {
+      title: "Visuals", noun: "diagram", wide: true,
+      help: "Paste a summary of the project, or run the Repo reader first and its best explanation lands here automatically. Each model sends back boxes and arrows as data, and this page draws them, so no model can put code on the page.",
+      sample: "A FastAPI server with a password check serves a dashboard page. The dashboard sends the user's text to agent endpoints. Each agent wraps the text in data tags and asks several AI models (NVIDIA, Google) in parallel. A referee model scores the answers. ElevenLabs reads the verdict aloud. The Repo reader fetches public code from GitHub and scrubs secrets first. Deployed on Railway.",
+      parse: (t) => {
+        const text = t.trim();
+        if (!text) return { error: "Paste a project summary, or run the Repo reader first." };
+        if (text.length > 20000) return { error: "Summaries are limited to 20,000 characters." };
+        return { body: { repo_summary: text }, count: 1 };
+      },
+    },
     repo_reader: {
       title: "Repo reader", noun: "explanation",
       help: "Type a public GitHub repo (owner/repo or its github.com link), or paste code. Secrets are blanked out before any model sees it, and hidden instructions in the code get flagged. Each model explains the parts, data flow, endpoints, how to run it and the risks.",
@@ -169,6 +188,7 @@
     },
   };
   let agent = "progress_reporter";
+  const handoff = {};  // best answer from one agent, offered to the next (Repo reader -> Visuals)
   const drafts = {};  // keeps what you typed for each agent when you switch
 
   function selectAgent(name) {
@@ -177,7 +197,7 @@
     const ui = AGENT_UI[name];
     $("agent-title").textContent = ui.title;
     $("agent-help").textContent = ui.help;
-    $("commits").value = drafts[name] ?? ui.sample;
+    $("commits").value = drafts[name] ?? (name === "visuals" ? handoff.repo_reader : undefined) ?? ui.sample;
     document.querySelectorAll(".agent.live").forEach((n) => n.classList.toggle("on", n.dataset.agent === name));
     $("results").replaceChildren(); $("verdict").replaceChildren(); $("table-card").hidden = true;
     $("hint").textContent = "";
@@ -244,25 +264,146 @@
     const bestId = (verdict && verdict.ok) ? verdict.best_model : null;
     results = [...results].sort((a, b) => ((b.model_id === bestId) - (a.model_id === bestId)) || (b.ok - a.ok) || ((scores[b.model_id] || 0) - (scores[a.model_id] || 0)) || (a.ms - b.ms));  // referee pick, then by score
     for (const r of results) {
-      const card = el("div", null, "result" + (r.ok ? "" : " failed"));
+      const card = el("div", null, "result" + (r.ok ? "" : " failed") + (AGENT_UI[agent].wide ? " wide" : ""));
       card.id = "card-" + r.model_id;
       const head = el("div", null, "row");
       const name = el("strong", r.label);
       if (r.model_id === bestId) name.append(el("span", "Referee's pick", "badge"));
       const meta = (scores[r.model_id] ? scores[r.model_id] + "/10 · " : "") + (r.ms / 1000).toFixed(1) + "s";
       head.append(name, el("span", meta, "muted"));
-      card.append(head, el("pre", r.ok ? r.text : "Failed: " + (r.error || "unknown error")));
+      card.append(head);
+      if (r.ok && agent === "visuals") card.append(diagramView(r.text));
+      else card.append(el("pre", r.ok ? r.text : "Failed: " + (r.error || "unknown error")));
       if (r.ok) {
         const pick = el("button", "Pick this one");
         pick.onclick = () => {
           box.querySelectorAll(".result").forEach((c) => c.classList.remove("picked"));
           card.classList.add("picked");
           savePick({ agent, model: r.model_id, at: new Date().toISOString(), items: itemCount });
+          handoff[agent] = r.text;
+          if (agent === "repo_reader") delete drafts.visuals;  // your pick replaces the old summary
         };
         card.append(pick);
       }
       box.append(card);
     }
+  }
+
+  const SVG = "http://www.w3.org/2000/svg";
+  const svgEl = (tag, attrs, text) => {
+    const n = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+    if (text) n.textContent = text;
+    return n;
+  };
+
+  // Columns by longest path from the starting boxes; arrows that loop back are drawn curved.
+  function layoutDiagram(d) {
+    const ids = d.nodes.map((n) => n.id), out = {};
+    ids.forEach((id) => { out[id] = []; });
+    d.edges.forEach((e) => out[e.from].push(e.to));
+    const state = {}, order = [], back = new Set();
+    const visit = (id) => {
+      state[id] = 1;
+      for (const t of out[id]) {
+        if (state[t] === 1) back.add(id + ">" + t);
+        else if (!state[t]) visit(t);
+      }
+      state[id] = 2; order.push(id);
+    };
+    ids.forEach((id) => { if (!state[id]) visit(id); });
+    const layer = {};
+    ids.forEach((id) => { layer[id] = 0; });
+    order.reverse().forEach((id) => out[id].forEach((t) => {
+      if (!back.has(id + ">" + t)) layer[t] = Math.max(layer[t], layer[id] + 1);
+    }));
+    const cols = {};
+    ids.forEach((id) => { (cols[layer[id]] = cols[layer[id]] || []).push(id); });
+    return { layer, cols, back };
+  }
+
+  function wrapLabel(text, max) {
+    const words = text.split(/\s+/), lines = [""];
+    for (const w of words) {
+      const cur = lines[lines.length - 1];
+      if ((cur + " " + w).trim().length <= max) lines[lines.length - 1] = (cur + " " + w).trim();
+      else if (lines.length < 2) lines.push(w);
+      else { lines[1] = (lines[1] + " " + w).slice(0, max - 1) + "…"; break; }
+    }
+    return lines;
+  }
+
+  function toMermaid(d) {
+    const clean = (t) => (t || "").replace(/["<>{}\[\]|`]/g, "").trim() || " ";
+    const shape = { user: ['(["', '"])'], client: ['("', '")'], service: ['["', '"]'], data: ['[("', '")]'], external: ['{{"', '"}}'] };
+    const lines = ["flowchart LR"];
+    d.nodes.forEach((n) => { const [a, b] = shape[n.kind] || shape.service; lines.push("  " + n.id + a + clean(n.label) + b); });
+    d.edges.forEach((e) => lines.push("  " + e.from + " -->" + (e.label ? '|"' + clean(e.label) + '"|' : "") + " " + e.to));
+    return lines.join("\n");
+  }
+
+  function diagramView(json) {
+    const wrap = el("div");
+    let d;
+    try { d = JSON.parse(json); } catch (e) { wrap.append(el("pre", json)); return wrap; }
+    const { layer, cols, back } = layoutDiagram(d);
+    const W = 150, H = 46, COL = 210, ROW = 78, PAD = 30;
+    const nCols = Object.keys(cols).length, nRows = Math.max(...Object.values(cols).map((c) => c.length));
+    const width = PAD * 2 + (nCols - 1) * COL + W, height = PAD * 2 + (nRows - 1) * ROW + H + 30;
+    const pos = {};
+    Object.entries(cols).forEach(([c, list]) => list.forEach((id, i) => {
+      const offset = ((nRows - list.length) * ROW) / 2;
+      pos[id] = { x: PAD + c * COL, y: PAD + offset + i * ROW };
+    }));
+    const svg = svgEl("svg", { viewBox: "0 0 " + width + " " + height, width: "100%", role: "img", "aria-label": d.title || "Architecture diagram" });
+    const defs = svgEl("defs");
+    const marker = svgEl("marker", { id: "arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+    marker.append(svgEl("path", { d: "M0,0 L10,5 L0,10 z", fill: "#fff" }));
+    defs.append(marker); svg.append(defs);
+    d.edges.forEach((e) => {
+      const a = pos[e.from], b = pos[e.to];
+      if (!a || !b) return;
+      const forward = layer[e.to] > layer[e.from] && !back.has(e.from + ">" + e.to);
+      let x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2, path;
+      if (forward) path = "M" + x1 + "," + y1 + " C" + (x1 + 50) + "," + y1 + " " + (x2 - 50) + "," + y2 + " " + x2 + "," + y2;
+      else {  // same column or looping back: arc underneath
+        x1 = a.x + W / 2; y1 = a.y + H; x2 = b.x + W / 2; y2 = b.y + H;
+        const dip = Math.max(y1, y2) + 34;
+        path = "M" + x1 + "," + y1 + " C" + x1 + "," + dip + " " + x2 + "," + dip + " " + x2 + "," + y2;
+      }
+      svg.append(svgEl("path", { d: path, class: "edge", "marker-end": "url(#arrow)" }));
+      if (e.label) {
+        const mx = (x1 + x2) / 2, my = forward ? (y1 + y2) / 2 - 6 : Math.max(y1, y2) + 30;
+        svg.append(svgEl("text", { x: mx, y: my, "text-anchor": "middle", class: "edge-label" }, e.label));
+      }
+    });
+    d.nodes.forEach((n) => {
+      const p = pos[n.id];
+      const g = svgEl("g");
+      const rx = { user: 23, client: 10 }[n.kind] || 0;
+      g.append(svgEl("rect", { x: p.x, y: p.y, width: W, height: H, rx, class: "box " + n.kind }));
+      if (n.kind === "data") g.append(svgEl("rect", { x: p.x + 4, y: p.y + 4, width: W - 8, height: H - 8, class: "box" }));
+      const lines = wrapLabel(n.label, 20);
+      lines.forEach((line, i) => g.append(svgEl("text", { x: p.x + W / 2, y: p.y + H / 2 + 4 + (i - (lines.length - 1) / 2) * 14, "text-anchor": "middle" }, line)));
+      const tip = svgEl("title", {}, n.label + " (" + n.kind + ")");
+      g.append(tip);
+      svg.append(g);
+    });
+    const box = el("div", null, "diagram"); box.append(svg);
+    wrap.append(el("strong", d.title || "Architecture"), box);
+    if (d.flow && d.flow.length) {
+      const ol = el("ol"); d.flow.forEach((step) => ol.append(el("li", step)));
+      wrap.append(el("div", "Request flow", "muted"), ol);
+    }
+    wrap.append(el("div", "Key: rounded = user or client · square = service · double border = data store · dashed = outside service", "muted"));
+    const copy = el("button", "Copy as Mermaid");
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(toMermaid(d)); copy.textContent = "Copied"; }
+      catch (e) { copy.textContent = "Copy failed"; }
+      setTimeout(() => { copy.textContent = "Copy as Mermaid"; }, 1500);
+    };
+    wrap.append(copy);
+    return wrap;
   }
 
   function buildTable(ids) {
@@ -411,8 +552,11 @@
       }
       renderVerdict(verdict, results);
       renderSafety(lastSafety);
+      const bestText = ((verdict && verdict.ok && results.find((r) => r.ok && r.model_id === verdict.best_model)) || results.find((r) => r.ok) || {}).text;
+      if (bestText) { handoff[agent] = bestText; if (agent === "repo_reader") delete drafts.visuals; }
       renderResults(results, parsed.count, verdict);
-      $("hint").textContent = "Done. Click a seat or pick the clearest " + ui.noun + ".";
+      $("hint").textContent = "Done. Click a seat or pick the clearest " + ui.noun + "." +
+        (agent === "repo_reader" && bestText ? " The best explanation is ready in 3 · Visuals." : "");
     } finally {
       $("run").disabled = false; $("bar").classList.remove("show");
     }

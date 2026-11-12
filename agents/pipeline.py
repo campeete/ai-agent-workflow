@@ -121,7 +121,7 @@ def run_pipeline(data: PipelineInput) -> PipelineOutput:
     """
     brief_out = brief_reader.run(data.brief)
     repo_out = repo_reader.run(data.repo)
-    visuals_out = visuals.run(VisualsInput(repo_summary=repo_out.summary))
+    visuals_out = visuals.run(VisualsInput(repo_summary=repo_out.summary, referee=data.repo.referee))
     slides_out = slides.run(
         SlidesInput(
             summary=repo_out.summary,
