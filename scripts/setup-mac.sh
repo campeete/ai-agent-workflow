@@ -54,9 +54,28 @@ echo
 if [ ${#FAILED[@]} -eq 0 ]; then echo "All installs succeeded."
 else echo "These did not install (paste this list back to Claude):"; printf "  - %s\n" "${FAILED[@]}"; fi
 
+echo
+echo "== 5. Identity check"
+if gh auth status >/dev/null 2>&1; then
+  ok "GitHub CLI signed in as: $(gh api user --jq .login 2>/dev/null)"
+else
+  miss "GitHub CLI not signed in (run: gh auth login)"
+fi
+GIT_EMAIL="$(git config --global user.email || true)"
+if [ -z "$GIT_EMAIL" ]; then
+  echo "  [warn] git email not set. Use your private GitHub address:"
+  echo "         git config --global user.email \"\$(gh api user --jq .id)+\$(gh api user --jq .login)@users.noreply.github.com\""
+elif [[ "$GIT_EMAIL" != *users.noreply.github.com ]]; then
+  echo "  [warn] git email is $GIT_EMAIL: it will be public in this repo's history."
+  echo "         Switch to your private GitHub address:"
+  echo "         git config --global user.email \"\$(gh api user --jq .id)+\$(gh api user --jq .login)@users.noreply.github.com\""
+else
+  ok "git email is private: $GIT_EMAIL"
+fi
+
 cat <<'NEXT'
 
-== 5. Sign in (each opens your browser)
+== 6. Sign in (each opens your browser)
   gh auth login        # GitHub: lets you push/pull without passwords
   railway login        # Railway: needed for Step 2 (deploy first)
 Then open Cursor once and sign in to your Cursor account.
