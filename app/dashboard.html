@@ -45,6 +45,12 @@
   .diagram .edge-label { font-size: 10px; paint-order: stroke; stroke: #000; stroke-width: 4px; }
   .diagram .box { fill: #000; stroke: #fff; stroke-width: 1.5; }
   .diagram .box.external { stroke-dasharray: 5 4; }
+  .slide { border: 1px solid #fff; padding: 12px 16px; margin: 10px 0; }
+  .slide ul { margin-top: 6px; }
+  .builders label { margin-right: 16px; }
+  .build { border: 1px solid #fff; padding: 14px; margin: 10px 0; }
+  .build.failed { border-style: dashed; opacity: .7; }
+  .build a { color: #fff; margin-right: 16px; }
   .result.picked { outline: 3px solid #fff; outline-offset: 3px; }
   .badge { border: 1px solid #fff; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
   .verdict { border: 2px solid #fff; padding: 20px; margin-bottom: 16px; }
@@ -84,7 +90,7 @@
     <div class="agent live" data-agent="brief_reader" role="button" tabindex="0"><strong>1 · Brief reader</strong><div class="muted">Reads the challenge, lists what judges want. Live.</div></div>
     <div class="agent live" data-agent="repo_reader" role="button" tabindex="0"><strong>2 · Repo reader</strong><div class="muted">Reads our code, explains how it fits together. Live.</div></div>
     <div class="agent live" data-agent="visuals" role="button" tabindex="0"><strong>3 · Visuals</strong><div class="muted">Draws the architecture diagram. Live.</div></div>
-    <div class="agent off"><strong>4 · Slides</strong><div class="muted">Builds the pitch deck. Coming soon.</div></div>
+    <div class="agent live" data-agent="slides" role="button" tabindex="0"><strong>4 · Slides</strong><div class="muted">Builds the pitch deck. Live.</div></div>
     <div class="agent live on" data-agent="progress_reporter" role="button" tabindex="0"><strong>5 · Progress reporter</strong><div class="muted">Turns commits into plain-English updates. Live.</div></div>
   </nav>
 
@@ -114,6 +120,13 @@
     </section>
     <section id="verdict"></section>
     <section class="results" id="results"></section>
+    <section class="card" id="build-card" hidden>
+      <h2>Build the deck</h2>
+      <p class="muted">Sends the Judge's pick (or the outline you picked) to each deck builder. Each one designs its own version; open them and keep the best. The outline goes to these companies, so keep private details out of it.</p>
+      <div class="builders" id="builders"></div>
+      <button type="button" id="build">Build decks</button>
+      <div id="builds"></div>
+    </section>
   </main>
 
   <aside>
@@ -163,6 +176,17 @@
           ? "Max 10 sections, 8,000 characters each, 20,000 in total." : "",
         "Paste the challenge text first."),
     },
+    slides: {
+      title: "Slides", noun: "outline", wide: true,
+      help: "Run the Brief reader, Repo reader and Visuals first: their best answers are gathered here automatically (edit freely). Each model writes a pitch-deck outline aimed at the judging criteria; the Judge picks one. Then send it to the deck builders below for designed decks.",
+      sample: "## Challenge\nTrack: Civic Tech. Judging: impact 40%, technical execution 30%, design 20%, presentation 10%. 3-minute demo.\n\n## How the project works\nA dashboard where several AI models answer side by side and a referee picks the best.",
+      parse: (t) => {
+        const text = t.trim();
+        if (!text) return { error: "Add some material: the challenge, how the project works, the diagram." };
+        if (text.length > 40000) return { error: "Material is limited to 40,000 characters." };
+        return { body: { material: text, n_slides: 8 }, count: 1 };
+      },
+    },
     visuals: {
       title: "Visuals", noun: "diagram", wide: true,
       help: "Paste a summary of the project, or run the Repo reader first and its best explanation lands here automatically. Each model sends back boxes and arrows as data, and this page draws them, so no model can put code on the page.",
@@ -191,13 +215,28 @@
   const handoff = {};  // best answer from one agent, offered to the next (Repo reader -> Visuals)
   const drafts = {};  // keeps what you typed for each agent when you switch
 
+  function slidesMaterial() {
+    const parts = [];
+    if (handoff.brief_reader) parts.push("## Challenge breakdown\n" + handoff.brief_reader);
+    if (handoff.repo_reader) parts.push("## How the project works\n" + handoff.repo_reader);
+    if (handoff.visuals) {
+      try {
+        const d = JSON.parse(handoff.visuals);
+        parts.push("## Architecture (Mermaid)\n" + toMermaid(d));
+        if (d.flow && d.flow.length) parts.push("## Request flow\n" + d.flow.map((s, i) => (i + 1) + ". " + s).join("\n"));
+      } catch (e) { /* not a diagram: skip */ }
+    }
+    return parts.length ? parts.join("\n\n") : undefined;
+  }
+
   function selectAgent(name) {
     if (name !== agent) drafts[agent] = $("commits").value;
     agent = name;
     const ui = AGENT_UI[name];
     $("agent-title").textContent = ui.title;
     $("agent-help").textContent = ui.help;
-    $("commits").value = drafts[name] ?? (name === "visuals" ? handoff.repo_reader : undefined) ?? ui.sample;
+    $("commits").value = drafts[name] ?? (name === "visuals" ? handoff.repo_reader : name === "slides" ? slidesMaterial() : undefined) ?? ui.sample;
+    $("build-card").hidden = !(name === "slides" && handoff.slides);
     document.querySelectorAll(".agent.live").forEach((n) => n.classList.toggle("on", n.dataset.agent === name));
     $("results").replaceChildren(); $("verdict").replaceChildren(); $("table-card").hidden = true;
     $("hint").textContent = "";
@@ -273,6 +312,7 @@
       head.append(name, el("span", meta, "muted"));
       card.append(head);
       if (r.ok && agent === "visuals") card.append(diagramView(r.text));
+      else if (r.ok && agent === "slides") card.append(outlineView(r.text));
       else card.append(el("pre", r.ok ? r.text : "Failed: " + (r.error || "unknown error")));
       if (r.ok) {
         const pick = el("button", "Pick this one");
@@ -282,6 +322,8 @@
           savePick({ agent, model: r.model_id, at: new Date().toISOString(), items: itemCount });
           handoff[agent] = r.text;
           if (agent === "repo_reader") delete drafts.visuals;  // your pick replaces the old summary
+          if (agent !== "slides") delete drafts.slides;        // re-gather the slide material
+          if (agent === "slides") showBuildCard();
         };
         card.append(pick);
       }
@@ -340,6 +382,68 @@
     d.nodes.forEach((n) => { const [a, b] = shape[n.kind] || shape.service; lines.push("  " + n.id + a + clean(n.label) + b); });
     d.edges.forEach((e) => lines.push("  " + e.from + " -->" + (e.label ? '|"' + clean(e.label) + '"|' : "") + " " + e.to));
     return lines.join("\n");
+  }
+
+  function outlineView(json) {
+    const wrap = el("div");
+    let o;
+    try { o = JSON.parse(json); } catch (e) { wrap.append(el("pre", json)); return wrap; }
+    wrap.append(el("strong", o.title));
+    o.slides.forEach((sl, i) => {
+      const box = el("div", null, "slide");
+      box.append(el("strong", (i + 1) + ". " + sl.title));
+      if (sl.bullets && sl.bullets.length) { const ul = el("ul"); sl.bullets.forEach((b) => ul.append(el("li", b))); box.append(ul); }
+      if (sl.notes) box.append(el("div", "Say: " + sl.notes, "muted"));
+      if (sl.visual && sl.visual !== "none") box.append(el("div", "Visual: " + sl.visual, "muted"));
+      wrap.append(box);
+    });
+    return wrap;
+  }
+
+  // Deck builders: send the chosen outline to each service; each returns links to its deck.
+  const safeHref = (u) => { try { const p = new URL(u); return p.protocol === "https:" ? p.href : null; } catch (e) { return null; } };
+
+  async function showBuildCard() {
+    $("build-card").hidden = false;
+    const box = $("builders");
+    if (box.childElementCount) return;
+    let list = [];
+    try { list = await (await fetch("/slides/builders")).json(); } catch (e) { /* shown as empty */ }
+    for (const b of list) {
+      const label = el("label", null, b.available ? "" : "na");
+      const cb = el("input"); cb.type = "checkbox"; cb.value = b.id; cb.checked = b.available; cb.disabled = !b.available;
+      label.append(cb, document.createTextNode(" " + b.label + " (" + (b.available ? b.notes : "key not set") + ")"));
+      box.append(label);
+    }
+  }
+
+  async function buildOne(id, label, outline) {
+    const card = el("div", null, "build");
+    card.append(el("strong", label), el("div", "Building… (decks take 30 seconds to a few minutes)", "muted"));
+    $("builds").append(card);
+    try {
+      const r = await fetch("/slides/build", { method: "POST", headers: { "Content-Type": "application/json" },
+                                               body: JSON.stringify({ builder: id, outline }) });
+      const d = await r.json().catch(() => ({}));
+      card.replaceChildren(el("strong", label));
+      if (!r.ok || !d.ok) {
+        card.classList.add("failed");
+        const why = Array.isArray(d.detail) ? d.detail.map((x) => x.msg).join("; ") : (d.error || d.detail || "Build failed");
+        card.append(el("div", "Failed: " + why, "muted")); return;
+      }
+      card.append(el("div", "Done in " + (d.ms / 1000).toFixed(0) + "s", "muted"));
+      const links = el("div");
+      for (const [text, url] of [["Download PowerPoint", d.download_url], ["PDF", d.pdf_url], ["Open in " + label, d.edit_url]]) {
+        const href = url && safeHref(url);
+        if (!href) continue;
+        const a = el("a", text); a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer";
+        links.append(a);
+      }
+      card.append(links);
+    } catch (e) {
+      card.replaceChildren(el("strong", label), el("div", "Failed: could not reach the server", "muted"));
+      card.classList.add("failed");
+    }
   }
 
   function diagramView(json) {
@@ -553,7 +657,12 @@
       renderVerdict(verdict, results);
       renderSafety(lastSafety);
       const bestText = ((verdict && verdict.ok && results.find((r) => r.ok && r.model_id === verdict.best_model)) || results.find((r) => r.ok) || {}).text;
-      if (bestText) { handoff[agent] = bestText; if (agent === "repo_reader") delete drafts.visuals; }
+      if (bestText) {
+        handoff[agent] = bestText;
+        if (agent === "repo_reader") delete drafts.visuals;
+        if (agent !== "slides") delete drafts.slides;
+        if (agent === "slides") showBuildCard();
+      }
       renderResults(results, parsed.count, verdict);
       $("hint").textContent = "Done. Click a seat or pick the clearest " + ui.noun + "." +
         (agent === "repo_reader" && bestText ? " The best explanation is ready in 3 · Visuals." : "");
@@ -570,6 +679,17 @@
     document.querySelectorAll("#models input:not(:disabled)").forEach((c) => { c.checked = on; });
     updateCount();
   }
+  $("build").onclick = async () => {
+    let outline;
+    try { outline = JSON.parse(handoff.slides); } catch (e) { $("hint").textContent = "Run Slides first to get an outline."; return; }
+    const chosen = [...document.querySelectorAll("#builders input:checked")];
+    if (!chosen.length) { $("hint").textContent = "Tick at least one deck builder (each needs its API key on the server)."; return; }
+    $("build").disabled = true; $("builds").replaceChildren();
+    try {
+      await Promise.all(chosen.map((c) => buildOne(c.value, c.parentElement.textContent.trim().split(" (")[0], outline)));
+    } finally { $("build").disabled = false; }
+  };
+
   $("all").onclick = () => setAll(true);
   $("none").onclick = () => setAll(false);
   $("models").addEventListener("change", updateCount);

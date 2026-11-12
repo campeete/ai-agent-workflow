@@ -122,13 +122,14 @@ def run_pipeline(data: PipelineInput) -> PipelineOutput:
     brief_out = brief_reader.run(data.brief)
     repo_out = repo_reader.run(data.repo)
     visuals_out = visuals.run(VisualsInput(repo_summary=repo_out.summary, referee=data.repo.referee))
-    slides_out = slides.run(
-        SlidesInput(
-            summary=repo_out.summary,
-            architecture_diagram=visuals_out.architecture_diagram,
-            flow_visual=visuals_out.flow_visual,
-        )
-    )
+    material = (
+        "## Challenge\n" + "\n\n".join(data.brief.challenge_statements)
+        + "\n\n## How the project works\n" + repo_out.summary
+        + "\n\n## Architecture (Mermaid)\n" + visuals_out.architecture_diagram
+        + "\n\n## Request flow\n" + visuals_out.flow_visual
+    )[:40_000]
+    slides_out = slides.run(SlidesInput(material=material, referee=data.repo.referee))
+
     return PipelineOutput(
         brief=brief_out,
         repo=repo_out,

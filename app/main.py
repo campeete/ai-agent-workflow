@@ -5,6 +5,7 @@ Docs: http://127.0.0.1:8000/docs
 """
 import logging
 import time
+from typing import Literal
 
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from agents.models import ModelInfo, list_models
-from agents import brief_reader, repo_reader, visuals
+from agents import brief_reader, deck_builders, repo_reader, slides, visuals
 from agents.progress_reporter import JudgeInput, judge_results
 from agents.referee import RefereeVerdict
 from agents.voice import MAX_CHARS, VoiceError, speak
@@ -154,6 +155,29 @@ def judge_repo(body: repo_reader.RepoJudgeInput) -> RefereeVerdict | None:
 def judge_visuals(body: visuals.VisualsJudgeInput) -> RefereeVerdict | None:
     """Referee judges the diagrams the dashboard collected."""
     return visuals.judge_results(body)
+
+
+@app.post("/agents/slides/judge")
+def judge_slides(body: slides.SlidesJudgeInput) -> RefereeVerdict | None:
+    """Referee judges the deck outlines the dashboard collected."""
+    return slides.judge_results(body)
+
+
+@app.get("/slides/builders")
+def read_builders() -> list[deck_builders.BuilderInfo]:
+    """The deck-builder services and whether each one's key is set (keys are never shown)."""
+    return deck_builders.list_builders()
+
+
+class BuildIn(BaseModel):
+    builder: Literal["presenton", "twoslides", "gamma", "plusai"]
+    outline: slides.Outline
+
+
+@app.post("/slides/build")
+def build_slides(body: BuildIn) -> deck_builders.BuildResult:
+    """Send the chosen outline to one deck builder; returns links to the finished deck."""
+    return deck_builders.build_deck(body.builder, body.outline)
 
 
 class SpeakIn(BaseModel):

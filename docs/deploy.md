@@ -24,6 +24,13 @@ Add them in Railway → service → Variables. Never in the repo. Read them in c
 | `NVIDIA_API_KEY` | Nemotron models | build.nvidia.com → model page → Get API Key |
 | `GEMINI_API_KEY` | Gemini models | aistudio.google.com → Get API key |
 | `OPENAI_API_KEY` | GPT models (optional, prepaid) | platform.openai.com → API Keys |
+| `ELEVENLABS_API_KEY` | British voice for the Judge (needs only the Text to Speech permission) | elevenlabs.io → Developers → API Keys |
+| `ELEVENLABS_VOICE_ID` | Which voice reads the verdict (not secret) | ElevenLabs → Voices → copy Voice ID |
+| `PRESENTON_API_KEY` | Presenton deck builder | presenton.ai/api-key |
+| `TWOSLIDES_API_KEY` | 2Slides deck builder | 2slides.com/api |
+| `GAMMA_API_KEY` | Gamma deck builder (Pro plan or higher) | gamma.app → Settings and Members → API key |
+| `PLUSAI_API_KEY` | Plus AI deck builder (Pro or Team plan) | Plus AI account → API key |
+| `GITHUB_TOKEN` | Optional: higher GitHub rate limit for the Repo reader | github.com → Settings → Developer settings → fine-grained token, public repos read-only |
 | `DASHBOARD_PASSWORD` | Login for the dashboard and every model endpoint | Make one up: long and random; share it only with teammates |
 
 A model whose key is missing shows as "Key not set" on `/dashboard` and is skipped; nothing crashes.
