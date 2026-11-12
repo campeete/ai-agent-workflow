@@ -16,13 +16,11 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
-from agents.models import PANEL_MODELS, ModelResult, call_panel, get_model
+from agents.models import PANEL_MODELS, ModelResult, call_panel
+from agents.panel import ALL_MODELS, DEFAULT_MODELS, JUDGE_TEXT_LIMIT, PanelChoice, as_data, check_results  # noqa: F401
 from agents.referee import RefereeVerdict, judge
 
 CommitMessage = Annotated[str, Field(min_length=1, max_length=500)]
-
-ALL_MODELS = [m.id for m in PANEL_MODELS]
-DEFAULT_MODELS = [m.id for m in PANEL_MODELS if m.default_on]
 
 SYSTEM_PROMPT = """You write short progress updates for a two-person hackathon team.
 You will receive git commit messages inside <commits> tags.
@@ -36,22 +34,10 @@ Write:
 Keep it under 120 words."""
 
 
-class ProgressReporterInput(BaseModel):
+class ProgressReporterInput(PanelChoice):
     """Git commits, plus which models to ask."""
 
     commit_messages: list[CommitMessage] = Field(min_length=1, max_length=200)
-    models: list[str] = Field(default_factory=lambda: list(DEFAULT_MODELS),
-                              min_length=1, max_length=len(PANEL_MODELS))
-
-    referee: bool = True  # have a fast model judge the answers
-
-    @field_validator("models")
-    @classmethod
-    def known_models(cls, value: list[str]) -> list[str]:
-        unknown = [m for m in value if m not in ALL_MODELS]
-        if unknown:
-            raise ValueError(f"Unknown models. Choose from: {', '.join(ALL_MODELS)}")
-        return list(dict.fromkeys(value))  # drop duplicates, keep order
 
 
 class ProgressReporterOutput(BaseModel):
@@ -62,9 +48,7 @@ class ProgressReporterOutput(BaseModel):
 
 
 def build_user_message(commit_messages: list[str]) -> str:
-    # Strip the closing tag so a commit message can't break out of the data block.
-    lines = "\n".join(f"- {m.replace('</commits>', '')}" for m in commit_messages)
-    return f"<commits>\n{lines}\n</commits>"
+    return as_data("commits", [f"- {m}" for m in commit_messages])
 
 
 def run(agent_input: ProgressReporterInput) -> ProgressReporterOutput:
@@ -77,9 +61,6 @@ def run(agent_input: ProgressReporterInput) -> ProgressReporterOutput:
     return ProgressReporterOutput(results=results, referee=verdict)
 
 
-JUDGE_TEXT_LIMIT = 6000
-
-
 class JudgeInput(BaseModel):
     """Answers gathered by the dashboard (one request per model), sent back to be judged."""
 
@@ -89,14 +70,7 @@ class JudgeInput(BaseModel):
     @field_validator("results")
     @classmethod
     def known_and_bounded(cls, value: list[ModelResult]) -> list[ModelResult]:
-        for r in value:
-            if r.model_id not in ALL_MODELS:
-                raise ValueError("Unknown model in results")
-            if len(r.text) > 20_000:
-                raise ValueError("Answer too long")
-            # Long answers are trimmed, not rejected, so one wordy model can't sink the judging.
-            r.text = r.text[:JUDGE_TEXT_LIMIT]
-        return value
+        return check_results(value)
 
 
 def judge_results(body: JudgeInput) -> RefereeVerdict | None:
