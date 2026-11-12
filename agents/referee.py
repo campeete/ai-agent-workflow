@@ -85,25 +85,30 @@ def judge(task: str, task_input: str, results: list[ModelResult]) -> RefereeVerd
 
     answered_ids = {r.model_id for r in answered}
     independent = [m for m in REFEREE_CANDIDATES if m not in answered_ids]
-    order = independent or REFEREE_CANDIDATES[:1]
-    self_judged = not independent
+    last_resort = [m for m in REFEREE_CANDIDATES if m in answered_ids]
+    order = (independent + last_resort)[:3]  # independent referees first; at most 3 tries
 
-    reply = None
-    for referee_model in order[:3]:  # try up to three referees, then give up
+    error, ms, referee_model, raw = "No referee available", 0, order[0], None
+    for referee_model in order:
         reply = call_model(referee_model, SYSTEM_PROMPT, user)
-        if reply.ok:
-            break
-    if not reply.ok:
-        return RefereeVerdict(ok=False, ms=reply.ms, error=reply.error,
-                              referee_model=referee_model, self_judged=self_judged)
-
-    data = _extract_json(reply.text)
-    try:
-        raw = _Raw.model_validate(data) if data is not None else None
-    except ValidationError:
+        ms += reply.ms
+        if not reply.ok:
+            error = reply.error
+            continue
+        data = _extract_json(reply.text)
+        try:
+            raw = _Raw.model_validate(data) if data is not None else None
+        except ValidationError:
+            raw = None
+        if raw is not None and raw.best in letters:
+            break  # valid verdict
         raw = None
-    if raw is None or raw.best not in letters:
-        return RefereeVerdict(ok=False, ms=reply.ms, error="Referee reply was not valid JSON",
+        snippet = " ".join(reply.text.split())[:80]
+        error = f"Referee reply was not valid JSON (it said: {snippet!r})"
+
+    self_judged = referee_model in answered_ids
+    if raw is None:
+        return RefereeVerdict(ok=False, ms=ms, error=error,
                               referee_model=referee_model, self_judged=self_judged)
 
     to_id = {k: r.model_id for k, r in letters.items()}
@@ -116,5 +121,5 @@ def judge(task: str, task_input: str, results: list[ModelResult]) -> RefereeVerd
         disagree=[s[:200] for s in raw.disagree[:3]],
         referee_model=referee_model,
         self_judged=self_judged,
-        ms=reply.ms,
+        ms=ms,
     )
