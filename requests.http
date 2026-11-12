@@ -15,3 +15,26 @@ POST {{base}}/echo
 Content-Type: application/json
 
 {"message": ""}
+
+### List the five agents
+GET {{base}}/agents
+
+### Run one agent (brief_reader; also repo_reader, visuals, slides, progress_reporter)
+POST {{base}}/agents/brief_reader/run
+Content-Type: application/json
+
+{"challenge_statements": ["Recommend the customer's smartest next move."]}
+
+### Run the pipeline (agents 1-4)
+POST {{base}}/pipeline/run
+Content-Type: application/json
+
+{
+  "brief": {
+    "challenge_statements": ["Recommend the customer's smartest next move."]
+  },
+  "repo": {
+    "code": "def health(): return {'status': 'ok'}",
+    "commits": ["add health endpoint"]
+  }
+}
