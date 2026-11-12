@@ -97,3 +97,14 @@ Authorization: {{auth}}
 Content-Type: application/json
 
 {"repo_summary": "A FastAPI server behind a password serves a dashboard. Agents ask NVIDIA and Google models in parallel; a referee model picks the best answer; ElevenLabs reads it aloud.", "models": ["nemotron-super", "nemotron-lightning"]}
+
+### Slides: which deck builders have keys set
+GET {{base}}/slides/builders
+Authorization: {{auth}}
+
+### Slides: build one deck from an outline (Presenton)
+POST {{base}}/slides/build
+Authorization: {{auth}}
+Content-Type: application/json
+
+{"builder": "presenton", "outline": {"title": "AI Agent Workflow", "slides": [{"title": "The problem", "bullets": ["Hackathon teams lose hours on slides and docs"]}, {"title": "Our solution", "bullets": ["Five AI agents, many models, one referee"]}, {"title": "How it works", "bullets": ["FastAPI, NVIDIA and Google models, Railway"]}]}}

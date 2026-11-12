@@ -198,7 +198,10 @@ def test_judge_picks_an_explanation(monkeypatch):
 
 def test_pipeline_hands_the_best_explanation_to_visuals(monkeypatch, fake_panel):
     import agents.brief_reader as brief_reader
-    monkeypatch.setattr(brief_reader, "call_panel", lambda ids, s, u: [])  # no real model calls in tests
+    import agents.slides as slides
+    import agents.visuals as visuals
+    for mod in (brief_reader, visuals, slides):  # no real model calls in tests
+        monkeypatch.setattr(mod, "call_panel", lambda ids, s, u: [])
     resp = client.post("/pipeline/run", json={"brief": {"challenge_statements": ["x"], "referee": False},
                                                "repo": {"code": "print(1)", "referee": False}})
     assert resp.status_code == 200
