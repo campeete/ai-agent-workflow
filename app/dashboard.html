@@ -67,6 +67,11 @@
       <textarea id="commits">Add skeleton for the 5 agents
 Add Railway deploy config and guide
 Add live API URL to README and deploy guide</textarea>
+      <div>
+        <button type="button" id="all">All models</button>
+        <button type="button" id="none">None</button>
+        <span class="muted" id="count"></span>
+      </div>
       <div class="models" id="models"></div>
       <button id="run">Run</button>
       <span class="muted" id="hint"></span>
@@ -116,7 +121,7 @@ Add live API URL to README and deploy guide</textarea>
     try { models = await (await fetch("/models")).json(); } catch (e) { info.append(el("li", "Could not load models.")); return; }
     for (const m of models) {
       const label = el("label", null, m.available ? "" : "na");
-      const cb = el("input"); cb.type = "checkbox"; cb.value = m.id; cb.checked = m.available; cb.disabled = !m.available;
+      const cb = el("input"); cb.type = "checkbox"; cb.value = m.id; cb.checked = m.available && m.default_on; cb.disabled = !m.available;
       label.append(cb, document.createTextNode(" " + m.label));
       box.append(label);
       const li = el("li");
@@ -129,6 +134,7 @@ Add live API URL to README and deploy guide</textarea>
 
   function renderResults(results, commits) {
     const box = $("results"); box.replaceChildren();
+    results = [...results].sort((a, b) => (b.ok - a.ok) || (a.ms - b.ms));  // answers first, fastest first
     for (const r of results) {
       const card = el("div", null, "result" + (r.ok ? "" : " failed"));
       const head = el("div", null, "row");
@@ -170,7 +176,19 @@ Add live API URL to README and deploy guide</textarea>
     }
   };
 
-  loadStatus(); loadModels();
+  function updateCount() {
+    const n = document.querySelectorAll("#models input:checked").length;
+    $("count").textContent = n + " selected · one run = " + n + " model call" + (n === 1 ? "" : "s");
+  }
+  function setAll(on) {
+    document.querySelectorAll("#models input:not(:disabled)").forEach((c) => { c.checked = on; });
+    updateCount();
+  }
+  $("all").onclick = () => setAll(true);
+  $("none").onclick = () => setAll(false);
+  $("models").addEventListener("change", updateCount);
+
+  loadStatus(); loadModels().then(updateCount);
 </script>
 </body>
 </html>
