@@ -36,6 +36,8 @@
   .results { display: flex; gap: 16px; flex-wrap: wrap; }
   .result { flex: 1 1 220px; border: 1px solid #fff; padding: 16px; }
   .result.picked { outline: 3px solid #fff; outline-offset: 3px; }
+  .badge { border: 1px solid #fff; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
+  .verdict { border: 2px solid #fff; padding: 20px; margin-bottom: 16px; }
   .result.failed { border-style: dashed; opacity: .7; }
   .result pre { white-space: pre-wrap; word-wrap: break-word; font: 14px/1.5 -apple-system, sans-serif; margin: 12px 0; }
   .row { display: flex; justify-content: space-between; gap: 8px; }
@@ -73,10 +75,12 @@ Add live API URL to README and deploy guide</textarea>
         <span class="muted" id="count"></span>
       </div>
       <div class="models" id="models"></div>
+      <label class="muted" style="margin-right:12px"><input type="checkbox" id="use-referee" checked> Referee picks the best</label>
       <button id="run">Run</button>
       <span class="muted" id="hint"></span>
       <div class="bar" id="bar"><span></span></div>
     </section>
+    <section id="verdict"></section>
     <section class="results" id="results"></section>
   </main>
 
@@ -132,13 +136,39 @@ Add live API URL to README and deploy guide</textarea>
     if (!models.some((m) => m.available)) $("hint").textContent = "No API keys set on the server yet.";
   }
 
-  function renderResults(results, commits) {
+  function renderVerdict(v, results) {
+    const box = $("verdict"); box.replaceChildren();
+    if (!v) return;
+    const card = el("div", null, "verdict");
+    if (!v.ok) {
+      card.append(el("strong", "Referee"), el("p", "Could not judge this run: " + (v.error || "unknown error"), "muted"));
+      box.append(card); return;
+    }
+    const best = results.find((r) => r.model_id === v.best_model);
+    card.append(el("strong", "Referee's pick: " + (best ? best.label : v.best_model)), el("p", v.reason));
+    const lists = [["Where they agree", v.agree], ["Where they differ", v.disagree]];
+    for (const [title, items] of lists) {
+      if (!items || !items.length) continue;
+      const ul = el("ul");
+      items.forEach((t) => ul.append(el("li", t)));
+      card.append(el("div", title, "muted"), ul);
+    }
+    card.append(el("div", "Judged by " + v.referee_model + " in " + (v.ms / 1000).toFixed(1) + "s · it saw the answers without model names", "muted"));
+    box.append(card);
+  }
+
+  function renderResults(results, commits, verdict) {
     const box = $("results"); box.replaceChildren();
-    results = [...results].sort((a, b) => (b.ok - a.ok) || (a.ms - b.ms));  // answers first, fastest first
+    const scores = (verdict && verdict.ok) ? verdict.scores : {};
+    const bestId = (verdict && verdict.ok) ? verdict.best_model : null;
+    results = [...results].sort((a, b) => ((b.model_id === bestId) - (a.model_id === bestId)) || (b.ok - a.ok) || ((scores[b.model_id] || 0) - (scores[a.model_id] || 0)) || (a.ms - b.ms));  // referee pick, then by score
     for (const r of results) {
       const card = el("div", null, "result" + (r.ok ? "" : " failed"));
       const head = el("div", null, "row");
-      head.append(el("strong", r.label), el("span", (r.ms / 1000).toFixed(1) + "s", "muted"));
+      const name = el("strong", r.label);
+      if (r.model_id === bestId) name.append(el("span", "Referee's pick", "badge"));
+      const meta = (scores[r.model_id] ? scores[r.model_id] + "/10 · " : "") + (r.ms / 1000).toFixed(1) + "s";
+      head.append(name, el("span", meta, "muted"));
       card.append(head, el("pre", r.ok ? r.text : "Failed: " + (r.error || "unknown error")));
       if (r.ok) {
         const pick = el("button", "Pick this one");
@@ -159,15 +189,16 @@ Add live API URL to README and deploy guide</textarea>
     if (!commits.length) { $("hint").textContent = "Add at least one commit message."; return; }
     if (!models.length) { $("hint").textContent = "Tick at least one model."; return; }
     $("hint").textContent = "Asking " + models.length + " model(s) at once…";
-    $("run").disabled = true; $("bar").classList.add("show"); $("results").replaceChildren();
+    $("run").disabled = true; $("bar").classList.add("show"); $("results").replaceChildren(); $("verdict").replaceChildren();
     try {
       const r = await fetch("/agents/progress_reporter/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commit_messages: commits, models }),
+        body: JSON.stringify({ commit_messages: commits, models, referee: $("use-referee").checked }),
       });
       const data = await r.json();
       if (!r.ok) { $("hint").textContent = "Request rejected: check the commit list (max 200 lines, 500 characters each)."; return; }
-      renderResults(data.results, commits);
+      renderVerdict(data.referee, data.results);
+      renderResults(data.results, commits, data.referee);
       $("hint").textContent = "Done. Pick the clearest update.";
     } catch (e) {
       $("hint").textContent = "Could not reach the server.";
