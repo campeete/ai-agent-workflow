@@ -8,7 +8,7 @@ call it on its own with a list of commit messages.
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -18,14 +18,6 @@ from agents.progress_reporter import ProgressReporterInput, ProgressReporterOutp
 from agents.repo_reader import RepoReaderInput, RepoReaderOutput
 from agents.slides import SlidesInput, SlidesOutput
 from agents.visuals import VisualsInput, VisualsOutput
-
-AgentOutput = (
-    BriefReaderOutput
-    | RepoReaderOutput
-    | VisualsOutput
-    | SlidesOutput
-    | ProgressReporterOutput
-)
 
 
 class PipelineInput(BaseModel):
@@ -106,35 +98,6 @@ AGENTS: tuple[AgentSpec, ...] = (
     ),
 )
 
-_EXAMPLES: dict[str, dict[str, object]] = {
-    "brief_reader": {
-        "challenge_statements": ["Recommend the customer's smartest next move."],
-    },
-    "repo_reader": {
-        "code": "def health(): return {'status': 'ok'}",
-        "commits": ["add health endpoint"],
-    },
-    "visuals": {
-        "repo_summary": "[placeholder] Summary of the parts, data flow and endpoints.",
-    },
-    "slides": {
-        "summary": "[placeholder] Summary of the parts, data flow and endpoints.",
-        "architecture_diagram": "[placeholder] architecture diagram",
-        "flow_visual": "[placeholder] flow visual",
-    },
-    "progress_reporter": {
-        "commit_messages": ["add health endpoint", "stub the agents"],
-    },
-}
-
-
-def _validate_examples() -> None:
-    for spec in AGENTS:
-        spec.input_model.model_validate(_EXAMPLES[spec.name])
-
-
-_validate_examples()
-
 
 def list_agents() -> list[AgentDescription]:
     """Describe the five agents in step order."""
@@ -147,22 +110,6 @@ def list_agents() -> list[AgentDescription]:
 
 def known_agent_names() -> list[str]:
     return [spec.name for spec in sorted(AGENTS, key=lambda spec: spec.step)]
-
-
-def get_agent(name: str) -> AgentSpec | None:
-    for spec in AGENTS:
-        if spec.name == name:
-            return spec
-    return None
-
-
-def run_agent(name: str, payload: object) -> AgentOutput:
-    """Validate `payload` with that agent's input model and run the stub."""
-    spec = get_agent(name)
-    if spec is None:
-        raise KeyError(name)
-    parsed = spec.input_model.model_validate(payload)
-    return cast(AgentOutput, spec.run(parsed))
 
 
 def run_pipeline(data: PipelineInput) -> PipelineOutput:
@@ -188,25 +135,3 @@ def run_pipeline(data: PipelineInput) -> PipelineOutput:
         visuals=visuals_out,
         slides=slides_out,
     )
-
-
-def agent_run_openapi_extra() -> dict[str, object]:
-    """Request-body schema for POST /agents/{name}/run.
-
-    The path name picks the model. OpenAPI lists every model's fields so
-    /docs can show them.
-    """
-    return {
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": {"oneOf": [spec.input_model.model_json_schema() for spec in AGENTS]},
-                    "examples": {
-                        spec.name: {"summary": spec.input, "value": _EXAMPLES[spec.name]}
-                        for spec in AGENTS
-                    },
-                }
-            },
-        }
-    }

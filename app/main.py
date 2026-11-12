@@ -3,25 +3,20 @@
 Run:  uv run uvicorn app.main:app --reload
 Docs: http://127.0.0.1:8000/docs
 """
-import json
 import logging
 import time
-from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Path, Request
-from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, Field, ValidationError
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from agents.pipeline import (
+    AGENTS,
     AgentDescription,
-    AgentOutput,
+    AgentSpec,
     PipelineInput,
     PipelineOutput,
-    agent_run_openapi_extra,
-    get_agent,
     known_agent_names,
     list_agents,
-    run_agent,
     run_pipeline,
 )
 
@@ -62,52 +57,41 @@ def echo(body: EchoIn) -> EchoOut:
     return EchoOut(message=body.message, author=body.author, length=len(body.message))
 
 
-def _body_validation_error(exc: ValidationError) -> RequestValidationError:
-    """Shape a Pydantic error like FastAPI's own body validation errors."""
-    errors = []
-    for err in exc.errors():
-        item = dict(err)
-        item["loc"] = ("body", *item.get("loc", ()))
-        errors.append(item)
-    return RequestValidationError(errors)
-
-
 @app.get("/agents")
 def read_agents() -> list[AgentDescription]:
     """List the five agents with name, step, input, and output."""
     return list_agents()
 
 
-@app.post(
-    "/agents/{name}/run",
-    response_model=AgentOutput,
-    responses={404: {"description": "Unknown agent name"}},
-    openapi_extra=agent_run_openapi_extra(),
-)
-async def run_one_agent(
-    name: Annotated[
-        str,
-        Path(
-            description="brief_reader, repo_reader, visuals, slides, or progress_reporter",
-        ),
-    ],
-    request: Request,
-) -> AgentOutput:
-    """Run one stub agent. The path name selects that agent's input model."""
-    if get_agent(name) is None:
-        known = ", ".join(known_agent_names())
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown agent '{name}'. Known agents: {known}",
-        )
-    try:
-        payload = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise HTTPException(status_code=422, detail="Request body must be JSON") from exc
-    try:
-        return run_agent(name, payload)
-    except ValidationError as exc:
-        raise _body_validation_error(exc) from exc
+def _agent_run_route(spec: AgentSpec):
+    """Build a POST handler whose body is that agent's input model."""
+    output_model = spec.run.__annotations__["return"]
+
+    def run_stub(body: spec.input_model):
+        return spec.run(body)
+
+    run_stub.__name__ = f"run_{spec.name}"
+    run_stub.__doc__ = f"Run the {spec.name} stub."
+    run_stub.__annotations__["return"] = output_model
+    return run_stub
+
+
+for _spec in AGENTS:
+    app.add_api_route(
+        f"/agents/{_spec.name}/run",
+        _agent_run_route(_spec),
+        methods=["POST"],
+        response_model=_spec.run.__annotations__["return"],
+    )
+
+
+@app.post("/agents/{name}/run", include_in_schema=False)
+def unknown_agent(name: str) -> None:
+    """Reject a name that is not one of the five agents."""
+    raise HTTPException(
+        status_code=404,
+        detail=f"Unknown agent. Known agents: {', '.join(known_agent_names())}",
+    )
 
 
 @app.post("/pipeline/run")
