@@ -1,0 +1,5 @@
+# Files the Cursor AI must never read or send to a model
+.env
+.env.*
+*.pem
+*.key
