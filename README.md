@@ -9,6 +9,14 @@ A reusable AI agent pipeline we bring to any hackathon: it reads the track brief
 | Cameron | [@campeete](https://github.com/campeete) | API, integration, security, infrastructure; leads AI and agent |
 | Rihanna | [@phantom-rose](https://github.com/phantom-rose) | Data and logic, frontend; shares AI and agent |
 
+## Live API
+
+- API: https://ai-agent-workflow-production-a63941fd.up.railway.app
+- Interactive docs: https://ai-agent-workflow-production-a63941fd.up.railway.app/docs
+- Reference docs: https://ai-agent-workflow-production-a63941fd.up.railway.app/redoc
+
+Every merge to `main` redeploys automatically ([deploy guide](docs/deploy.md)).
+
 ## Start here
 
 1. Setup (Mac): `bash scripts/setup-mac.sh`
