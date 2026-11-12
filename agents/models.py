@@ -42,6 +42,8 @@ class ModelSpec:
     best_for: str
     cost: str  # "free tier", "low", "medium"
     extra_body: dict = field(default_factory=dict)  # provider-specific options
+    timeout: int = 25  # seconds; big models get longer
+    default_on: bool = True  # ticked on the dashboard by default
 
 
 MODELS: tuple[ModelSpec, ...] = (
@@ -64,7 +66,53 @@ MODELS: tuple[ModelSpec, ...] = (
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     ),
     ModelSpec(
+        id="mistral-large-4",
+        timeout=60,
+        provider="nvidia",
+        model="mistralai/mistral-large-4-1t-a52b",
+        label="Mistral Large 4",
+        best_for="Strong all-rounder, clean structured answers",
+        cost="free tier",
+    ),
+    ModelSpec(
+        id="deepseek-v4-flash",
+        timeout=60,
+        provider="nvidia",
+        model="deepseek-ai/deepseek-v4.1-flash",
+        label="DeepSeek V4.1 Flash",
+        best_for="Cheap and fast, good with code",
+        cost="free tier",
+    ),
+    ModelSpec(
+        id="minimax-m3-flash",
+        provider="nvidia",
+        model="minimaxai/minimax-m3.1-flash",
+        label="MiniMax M3.1 Flash",
+        best_for="Coding, agent work, cybersecurity",
+        cost="free tier",
+    ),
+    ModelSpec(
+        id="glm-5-flash",
+        timeout=60,
+        provider="nvidia",
+        model="z-ai/glm-5.3-flash",
+        label="GLM 5.3 Flash",
+        best_for="Fast reasoning",
+        cost="free tier",
+    ),
+    ModelSpec(
+        id="gemini-4-argon",
+        timeout=60,
+        default_on=False,  # free tier allows very few calls
+        provider="google",
+        model="gemini-4-argon",
+        label="Gemini 4 Argon",
+        best_for="Google's strongest, careful writing",
+        cost="free tier",
+    ),
+    ModelSpec(
         id="gemini-flash",
+        timeout=60,
         provider="google",
         model="gemini-flash-latest",
         label="Gemini Flash",
@@ -73,8 +121,7 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
 )
 
-TIMEOUT_SECONDS = 25  # a slow provider fails fast instead of holding up the panel
-MAX_OUTPUT_TOKENS = 800
+MAX_OUTPUT_TOKENS = 1200  # room for models that think before answering
 
 
 class ModelInfo(BaseModel):
@@ -84,6 +131,7 @@ class ModelInfo(BaseModel):
     best_for: str
     cost: str
     available: bool  # True when its API key is set. The key itself is never returned.
+    default_on: bool
 
 
 class ModelResult(BaseModel):
@@ -112,6 +160,7 @@ def list_models() -> list[ModelInfo]:
             best_for=m.best_for,
             cost=m.cost,
             available=_key_for(m) is not None,
+            default_on=m.default_on,
         )
         for m in MODELS
     ]
@@ -131,7 +180,7 @@ def call_model(model_id: str, system: str, user: str) -> ModelResult:
     start = time.perf_counter()
     try:
         client = OpenAI(base_url=PROVIDERS[spec.provider]["base_url"], api_key=key,
-                        timeout=TIMEOUT_SECONDS, max_retries=0)
+                        timeout=spec.timeout, max_retries=0)
         response = client.chat.completions.create(
             model=spec.model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -154,7 +203,7 @@ def call_model(model_id: str, system: str, user: str) -> ModelResult:
 def _friendly_error(exc: Exception) -> str:
     name = type(exc).__name__
     hints = {
-        "APITimeoutError": f"Timed out after {TIMEOUT_SECONDS}s (provider busy)",
+        "APITimeoutError": "Timed out (provider busy or model too slow)",
         "InternalServerError": "Provider is down or overloaded, try again soon",
         "RateLimitError": "Rate limit hit, wait a minute",
         "AuthenticationError": "API key rejected",

@@ -20,7 +20,8 @@ from agents.models import MODELS, ModelResult, call_panel, get_model
 
 CommitMessage = Annotated[str, Field(min_length=1, max_length=500)]
 
-DEFAULT_MODELS = [m.id for m in MODELS]
+ALL_MODELS = [m.id for m in MODELS]
+DEFAULT_MODELS = [m.id for m in MODELS if m.default_on]
 
 SYSTEM_PROMPT = """You write short progress updates for a two-person hackathon team.
 You will receive git commit messages inside <commits> tags.
@@ -46,7 +47,7 @@ class ProgressReporterInput(BaseModel):
     def known_models(cls, value: list[str]) -> list[str]:
         unknown = [m for m in value if get_model(m) is None]
         if unknown:
-            raise ValueError(f"Unknown models. Choose from: {', '.join(DEFAULT_MODELS)}")
+            raise ValueError(f"Unknown models. Choose from: {', '.join(ALL_MODELS)}")
         return list(dict.fromkeys(value))  # drop duplicates, keep order
 
 
