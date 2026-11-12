@@ -17,6 +17,7 @@ from typing import Annotated
 from pydantic import BaseModel, Field, field_validator
 
 from agents.models import MODELS, ModelResult, call_panel, get_model
+from agents.referee import RefereeVerdict, judge
 
 CommitMessage = Annotated[str, Field(min_length=1, max_length=500)]
 
@@ -42,6 +43,8 @@ class ProgressReporterInput(BaseModel):
     models: list[str] = Field(default_factory=lambda: list(DEFAULT_MODELS),
                               min_length=1, max_length=len(MODELS))
 
+    referee: bool = True  # have a fast model judge the answers
+
     @field_validator("models")
     @classmethod
     def known_models(cls, value: list[str]) -> list[str]:
@@ -55,6 +58,7 @@ class ProgressReporterOutput(BaseModel):
     """Plain-English updates for teammates, one per model."""
 
     results: list[ModelResult]
+    referee: RefereeVerdict | None = None
 
 
 def build_user_message(commit_messages: list[str]) -> str:
@@ -65,6 +69,9 @@ def build_user_message(commit_messages: list[str]) -> str:
 
 def run(agent_input: ProgressReporterInput) -> ProgressReporterOutput:
     """Ask every chosen model in parallel and return all answers."""
-    results = call_panel(agent_input.models, SYSTEM_PROMPT,
-                         build_user_message(agent_input.commit_messages))
-    return ProgressReporterOutput(results=results)
+    user = build_user_message(agent_input.commit_messages)
+    results = call_panel(agent_input.models, SYSTEM_PROMPT, user)
+    verdict = None
+    if agent_input.referee:
+        verdict = judge("Write a short plain-English progress update from these commits.", user, results)
+    return ProgressReporterOutput(results=results, referee=verdict)
