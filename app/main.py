@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from agents.models import ModelInfo, list_models
+from app.auth import require_password
 
 from agents.pipeline import (
     AGENTS,
@@ -35,6 +36,11 @@ app = FastAPI(
 )
 
 DASHBOARD_HTML = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+
+
+# Password check runs first (registered first = inner), logging wraps it,
+# so refused requests are still logged.
+app.middleware("http")(require_password)
 
 
 @app.middleware("http")

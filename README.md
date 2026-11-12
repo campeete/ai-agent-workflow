@@ -15,7 +15,7 @@ A reusable AI agent pipeline we bring to any hackathon: it reads the track brief
 - Interactive docs: https://ai-agent-workflow-production-a63941fd.up.railway.app/docs
 - Reference docs: https://ai-agent-workflow-production-a63941fd.up.railway.app/redoc
 
-Every merge to `main` redeploys automatically ([deploy guide](docs/deploy.md)).
+The dashboard and model endpoints need the team password (ask Cameron). Every merge to `main` redeploys automatically ([deploy guide](docs/deploy.md)).
 
 ## Start here
 
