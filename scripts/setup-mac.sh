@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Step 1 setup for the hackathon workflow (macOS). Safe to re-run.
+# Usage: bash scripts/setup-mac.sh
+set -u
+
+ok()   { printf "  [ok]   %s\n" "$1"; }
+miss() { printf "  [fail] %s\n" "$1"; FAILED+=("$1"); }
+FAILED=()
+
+echo "== 1. Homebrew"
+if ! command -v brew >/dev/null 2>&1; then
+  echo "Homebrew is not installed. Install it first, then re-run this script:"
+  echo '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+  exit 1
+fi
+ok "brew $(brew --version | head -1)"
+
+echo "== 2. Command-line tools"
+for f in git gh uv railway; do
+  if brew list --formula "$f" >/dev/null 2>&1 || command -v "$f" >/dev/null 2>&1; then
+    ok "$f already installed"
+  else
+    brew install "$f" && ok "$f" || miss "$f"
+  fi
+done
+
+echo "== 3. Editors"
+install_app() { # $1 cask, $2 app name
+  if [ -d "/Applications/$2.app" ]; then ok "$2 already installed"
+  else brew install --cask "$1" && ok "$2" || miss "$2"; fi
+}
+install_app cursor "Cursor"
+install_app visual-studio-code "Visual Studio Code"
+
+CURSOR="/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
+CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+
+echo "== 4. Extensions"
+add_ext() { # $1 editor cli, $2 label, $3 extension id
+  if [ ! -x "$1" ]; then miss "$2: editor CLI not found"; return; fi
+  "$1" --install-extension "$3" --force >/dev/null 2>&1 && ok "$2: $3" || miss "$2: $3"
+}
+# VS Code: full Microsoft set (Pylance and Live Share live here)
+for e in humao.rest-client ms-python.python ms-python.vscode-pylance eamodio.gitlens ms-vsliveshare.vsliveshare; do
+  add_ext "$CODE" "VS Code" "$e"
+done
+# Cursor: uses the Open VSX marketplace; Pylance is Microsoft-only, so Cursor
+# ships its own Python language server. Live Share may not install here.
+for e in humao.rest-client ms-python.python eamodio.gitlens ms-vsliveshare.vsliveshare; do
+  add_ext "$CURSOR" "Cursor" "$e"
+done
+
+echo
+if [ ${#FAILED[@]} -eq 0 ]; then echo "All installs succeeded."
+else echo "These did not install (paste this list back to Claude):"; printf "  - %s\n" "${FAILED[@]}"; fi
+
+cat <<'NEXT'
+
+== 5. Sign in (each opens your browser)
+  gh auth login        # GitHub: lets you push/pull without passwords
+  railway login        # Railway: needed for Step 2 (deploy first)
+Then open Cursor once and sign in to your Cursor account.
+NEXT
