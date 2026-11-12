@@ -4,7 +4,8 @@ Every push to `main` redeploys automatically. Deployment is Cameron's lane.
 
 ## How it runs
 - Railway builds with Railpack: it reads `pyproject.toml`, `uv.lock` and `.python-version` (3.12).
-- `railway.json` sets the start command: uvicorn on `0.0.0.0:$PORT` (Railway picks the port).
+- `railpack.json` sets the start command: uvicorn on `0.0.0.0:$PORT` (Railway picks the port).
+- `railway.json` sets the health check and restart policy (Railway plans to replace it after 2026-12-01; run `railway config migrate` then).
 - Health check: Railway calls `GET /health` and only switches traffic once it returns 200.
 
 ## First-time setup (done once)
@@ -18,7 +19,8 @@ Add them in Railway → service → Variables. Never in the repo. Read them in c
 ## Troubleshooting
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Health check fails | App not listening on `$PORT` or `0.0.0.0` | Check `railway.json` start command |
+| `No start command detected` | Railpack did not find a start command | Keep `railpack.json` at the repo root |
+| Health check fails | App not listening on `$PORT` or `0.0.0.0` | Check the `railpack.json` start command |
 | `'$PORT' is not a valid integer` | Start command not run through a shell | Keep the `sh -c '...'` wrapper |
 | Build picks wrong Python | `.python-version` missing | Keep it at the repo root |
 | Logs: `ModuleNotFoundError: agents` | Wrong start directory | Start command must run from repo root |
