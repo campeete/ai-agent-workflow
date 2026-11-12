@@ -100,7 +100,8 @@ Add live API URL to README and deploy guide</textarea>
       <h2>Round table</h2>
       <p class="muted">Seats glow as each model thinks, light up when its answer lands, and the referee's pick shines brightest. Click a seat to jump to its answer.</p>
       <div class="table-wrap" id="table"><div class="ring"></div>
-        <div class="center"><div class="glyph" id="judge-glyph">⚖&#xFE0E;</div><div class="muted" id="judge-state">The Judge waits</div></div>
+        <div class="center"><div class="glyph" id="judge-glyph">⚖&#xFE0E;</div><div class="muted" id="judge-state">The Judge waits</div>
+          <button type="button" id="hear" hidden>▶ Hear the Judge</button></div>
       </div>
     </section>
     <section id="verdict"></section>
@@ -254,6 +255,36 @@ Add live API URL to README and deploy guide</textarea>
     }
   }
 
+  let lastVerdict = null, lastResults = [], audio = null;
+
+  function verdictSpeech(v, results) {
+    const name = (id) => (((window.MODEL_INFO || {})[id] || {}).label) || id;
+    const parts = ["The Judge has reviewed " + results.filter((r) => r.ok).length + " answers.",
+                   "The winner is " + name(v.best_model) + ". " + (v.reason || "")];
+    if (v.agree && v.agree.length) parts.push("They agree that " + v.agree.join("; ") + ".");
+    if (v.disagree && v.disagree.length) parts.push("They differ on " + v.disagree.join("; ") + ".");
+    return parts.join(" ").slice(0, 600);
+  }
+
+  $("hear").onclick = async () => {
+    if (!lastVerdict) return;
+    if (audio && !audio.paused) { audio.pause(); $("hear").textContent = "▶ Hear the Judge"; return; }
+    $("hear").disabled = true; $("hear").textContent = "Preparing voice…";
+    try {
+      const r = await fetch("/speak", { method: "POST", headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ text: verdictSpeech(lastVerdict, lastResults) }) });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || "Voice unavailable"); }
+      const url = URL.createObjectURL(await r.blob());
+      if (audio) { audio.pause(); URL.revokeObjectURL(audio.src); }
+      audio = new Audio(url);
+      audio.onended = () => { $("hear").textContent = "▶ Hear the Judge"; };
+      await audio.play();
+      $("hear").textContent = "❚❚ Stop";
+    } catch (e) {
+      $("hear").textContent = "▶ Hear the Judge"; $("hint").textContent = "Voice: " + e.message;
+    } finally { $("hear").disabled = false; }
+  };
+
   $("run").onclick = async () => {
     const commits = $("commits").value.split("\n").map((s) => s.trim()).filter(Boolean);
     const models = [...document.querySelectorAll("#models input:checked")].map((c) => c.value);
@@ -264,6 +295,7 @@ Add live API URL to README and deploy guide</textarea>
     $("run").disabled = true; $("bar").classList.add("show");
     $("results").replaceChildren(); $("verdict").replaceChildren();
     buildTable(models);
+    $("hear").hidden = true; if (audio) audio.pause();
     try {
       // One request per model, all at once, so each seat lights up the moment it answers.
       const results = await Promise.all(models.map((id) => askOne(id, commits).then((r) => { lightSeat(r); return r; })));
@@ -279,6 +311,8 @@ Add live API URL to README and deploy guide</textarea>
           verdict = j.ok ? await j.json() : { ok: false, error: "Judge request rejected" };
         } catch (e) { verdict = { ok: false, error: "Could not reach the judge" }; }
       }
+      lastVerdict = (verdict && verdict.ok) ? verdict : null; lastResults = results;
+      $("hear").hidden = !lastVerdict;
       if (verdict && verdict.ok) {
         const best = $("seat-" + verdict.best_model);
         if (best) best.classList.add("best");
