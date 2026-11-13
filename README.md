@@ -7,7 +7,7 @@ A reusable AI agent pipeline we bring to any hackathon: it reads the track brief
 | Name | GitHub | Lane |
 |---|---|---|
 | Cameron | [@campeete](https://github.com/campeete) | API, integration, security, infrastructure; leads AI and agent |
-| Rihanna | [@phantom-rose](https://github.com/phantom-rose) | Data and logic, frontend; shares AI and agent |
+| Rihanna | [@phantom-rose](https://github.com/phantom-rose) | Data and logic, frontend; shares AI and agent. Goal: build the dashboard that shows our agents' diagrams and decks |
 
 ## Live API
 
